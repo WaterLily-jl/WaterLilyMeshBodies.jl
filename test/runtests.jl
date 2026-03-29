@@ -4,7 +4,8 @@ import ImplicitBVH
 import ImplicitBVH: BBox, BSphere
 
 # Test utility: brute-force closest point search (moved from src/bvh.jl)
-@inline closest_brute(x::SVector,mesh) = findmin(tri->WaterLilyMeshBodies.d²_fast(x, tri),mesh)
+@fastmath @inline d²_fast(x::SVector,tri::SMatrix) = sum(abs2,x-WaterLilyMeshBodies.locate(x,tri))
+@inline closest_brute(x::SVector,mesh) = findmin(tri->d²_fast(x, tri),mesh)
 
 # Conditionally use CUDA if available
 arrays = [Array]  # Default to CPU-only
@@ -35,7 +36,6 @@ R = SA{T}[cos(π/4) -sin(π/4) 0; sin(π/4) cos(π/4) 0; 0 0 1]
     @test all(hat(vec) .≈ vec./5)
     @test all(hat(zero(vec)) .≈ zero(vec)) # edge case
 
-    d²_fast = WaterLilyMeshBodies.d²_fast
     @test d²_fast(SA{T}[0.1,0.1,0.1], tri1) ≈ 0.1^2
     @test d²_fast(SA{T}[0.5,0.5,0.0], tri1) ≈ 0^2
     @test d²_fast(R*SA{T}[0.1,0.1,0.1], R*tri1) ≈ 0.1^2 # invariant under rotation
@@ -112,12 +112,12 @@ end
     mesh = [SA{T}[0 0 1; 0 0 0; 1 0 0],SA{T}[0 0 1; 1 0 0; 0 1 0]]
     bvh = ImplicitBVH.BVH(BBox{T}.(mesh), BBox{T})
     body = MeshBody(mesh, zero(mesh), bvh; boundary=true)
-    @test sdf(body,SA{T}[1,0.1,1],0f0)>0 broken=true
+    @test sdf(body,SA{T}[1,0.1,1],0f0)>0
     # interior
     mesh = [SA{T}[0 0 1; 0 0 0; 0 1 0],SA{T}[0 0 1; 0 1 0; 1 0 0]]
     bvh = ImplicitBVH.BVH(BBox{T}.(mesh), BBox{T})
     body = MeshBody(mesh, zero(mesh), bvh; boundary=true)
-    @test sdf(body,SA{T}[1,0.1,1],0f0)<0 broken=true
+    @test sdf(body,SA{T}[1,0.1,1],0f0)<0
 end
 
 @testset "Measure & SDF" begin

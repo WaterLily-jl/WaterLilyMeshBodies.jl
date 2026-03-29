@@ -4,7 +4,6 @@ using StaticArrays
 using LinearAlgebra: cross
 import WaterLily: ×
 
-@fastmath @inline d²_fast(x::SVector,tri::SMatrix) = sum(abs2,x-locate(x,tri))
 @fastmath @inline normal(tri::SMatrix) = hat(SVector(cross(tri[:,2]-tri[:,1],tri[:,3]-tri[:,1])))
 @fastmath @inline hat(v) = v/(√(v'*v)+eps(eltype(v)))
 @fastmath @inline center(tri::SMatrix) = SVector(sum(tri,dims=2)/3)
