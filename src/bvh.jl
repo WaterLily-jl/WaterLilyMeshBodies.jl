@@ -17,9 +17,6 @@ function dist(x, b::BBox)
 end
 dist(x, b::BoundingVolume) = dist(x, b.volume)
 
-# brute-force fallback when the BVH is not available
-@inline closest(x::SVector,mesh) = findmin(tri->d²_fast(x, tri),mesh)
-
 # traverse the BVH
 @inline function closest(x::SVector{D,T},bvh::ImplicitBVH.BVH,mesh;a=floatmax(T),verbose=false) where {D,T}
     tree = bvh.tree; length_nodes = length(bvh.nodes)
