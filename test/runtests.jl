@@ -100,10 +100,10 @@ end
         bvh = ImplicitBVH.BVH(bounding_boxes, BBox{T})
 
         # trivial locate
-        @test GPUArrays.@allowscalar all(closest(x1, bvh, mesh) .≈ (0, 1))
-        @test GPUArrays.@allowscalar all(closest(SA{T}[1,1,1], bvh, mesh) .≈ (0, 2))
+        @test GPUArrays.@allowscalar (c=closest(x1,bvh,mesh); c.d²≈0 && c.index==1)
+        @test GPUArrays.@allowscalar (c=closest(SA{T}[1,1,1],bvh,mesh); c.d²≈0 && c.index==2)
         # not so trivial
-        @test GPUArrays.@allowscalar all(closest(SA{T}[0.1,0.1,0.5], bvh, mesh) .≈ (0.5^2, 1))
+        @test GPUArrays.@allowscalar (c=closest(SA{T}[0.1,0.1,0.5],bvh,mesh); c.d²≈0.5^2 && c.index==1)
     end
 end
 
@@ -173,10 +173,10 @@ end
     for mesh_file in ["sphere.stl","box.stl"]
         body = MeshBody(joinpath(@__DIR__, "meshes", mesh_file); scale=1.f0, mem, boundary=true)
         for x in test_points
-            d_brute, u_brute = closest_brute(x, body.mesh)  # brute-force ground truth
-            d_bvh, u_bvh = closest(x, body.bvh, body.mesh)  # BVH traversal
-            @test d_bvh ≈ d_brute  # same squared distance
-            @test u_bvh == u_brute || locate(x, body.mesh[u_brute]) ≈ locate(x, body.mesh[u_bvh])
+            d², index = closest_brute(x, body.mesh)  # brute-force ground truth
+            nearest = closest(x, body.bvh, body.mesh)  # BVH traversal
+            @test nearest.d² ≈ d²  # same squared distance
+            @test nearest.index == index || locate(x, body.mesh[index]) ≈ locate(x, body.mesh[nearest.index])
             mesh_file == "sphere.stl" && @test sdf(body, x) ≈ √(x'x)-0.5f0  atol=15e-3
         end
     end
