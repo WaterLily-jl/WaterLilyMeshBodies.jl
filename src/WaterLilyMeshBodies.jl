@@ -19,7 +19,13 @@ function MeshBody(mesh::M,vel::M,bvh::B;map=(x,t)->x,scale=1.f0,boundary=false,h
 end
 using Adapt
 # make it GPU compatible
-Adapt.@adapt_structure Meshbody
+function Adapt.adapt_structure(to, body::Meshbody)
+    mesh = Adapt.adapt(to, body.mesh)
+    velocity = Adapt.adapt(to, body.velocity)
+    bvh = Adapt.adapt(to, body.bvh)
+    Meshbody{typeof(body.scale),typeof(mesh),typeof(bvh),typeof(body.map)}(
+        mesh, velocity, bvh, body.map, body.scale, body.boundary, body.half_thk)
+end
 
 """
     MeshBody(mesh::Union{Mesh, String};

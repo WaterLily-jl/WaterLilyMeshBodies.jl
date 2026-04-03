@@ -12,7 +12,7 @@ arrays = [Array]  # Default to CPU-only
 try
     using CUDA
     if CUDA.functional()
-        arrays = [Array, CuArray]
+        push!(arrays, CuArray)
         @info "CUDA detected and functional - running tests on CPU and GPU"
     else
         @info "CUDA detected but not functional - running tests on CPU only"
@@ -192,5 +192,20 @@ end
         sim_step!(sim, 0.1, remeasure=false)
         @test maximum(sim.pois.n) < 10
         @test 1 > sim.flow.Δt[end] > 0
+    end
+end
+
+@testset "RigidMap MeshBody" begin
+    if @isdefined(CuArray) && (CuArray in arrays)
+        mesh_file = joinpath(@__DIR__, "meshes", "sphere.stl")
+        center = SA{T}[0, 0, 0]
+        theta = SA{T}[0, 0, 0]
+        map = RigidMap(center, theta; xₚ=center)
+        body = MeshBody(mesh_file; scale=T(8), map, mem=CuArray)
+        converted = CUDA.cudaconvert(body)
+        @test converted isa WaterLilyMeshBodies.Meshbody
+        @test converted.map === map
+    else
+        @test_skip "CUDA backend unavailable; skipping GPU-only RigidMap adaptation regression"
     end
 end
