@@ -4,9 +4,6 @@ using StaticArrays
 using ForwardDiff
 using WaterLily
 
-# signed distance function
-WaterLily.sdf(body::Meshbody,x,t;kwargs...) = measure(body,x,t;kwargs...)[1]
-
 # measure
 function WaterLily.measure(body::Meshbody,x::SVector{D,T},t;fastd²=Inf) where {D,T}
     # map to correct location
