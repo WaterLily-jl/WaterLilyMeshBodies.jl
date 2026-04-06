@@ -1,14 +1,8 @@
-# BVH traversal and bounding volume functions
-
 using StaticArrays
 import ImplicitBVH
 import ImplicitBVH: BoundingVolume, BBox, BSphere, memory_index, unsafe_isvirtual
 
-@fastmath @inline inside(x::SVector, b::BoundingVolume) = inside(x, b.volume)
-@fastmath @inline inside(x::SVector, b::BBox) = all(b.lo.-4 .≤ x) && all(x .≤ b.up.+4)
-@fastmath @inline inside(x::SVector, b::BSphere) = √sum(abs2,x .- b.x) - b.r ≤ 4
-
-# compute the square distance to primitive
+# square distance to primitive
 @fastmath @inline dist(x, b::BSphere) = max(√sum(abs2,x .- b.x) - b.r, 0)^2
 @fastmath @inline function dist(x, b::BBox)
     s = zero(eltype(x))

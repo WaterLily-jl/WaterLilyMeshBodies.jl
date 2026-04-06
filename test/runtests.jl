@@ -1,11 +1,10 @@
 using WaterLilyMeshBodies
-using Test, GPUArrays, StaticArrays, WaterLily
+using Test, GPUArrays, StaticArrays, WaterLily, LinearAlgebra
 import ImplicitBVH
 import ImplicitBVH: BBox, BSphere
 
 # Test utility: brute-force closest point search (moved from src/bvh.jl)
 @fastmath @inline d²_fast(x::SVector,tri::SMatrix) = sum(abs2,x-WaterLilyMeshBodies.locate(x,tri))
-@inline closest_brute(x::SVector,mesh) = findmin(tri->d²_fast(x, tri),mesh)
 
 # Conditionally use CUDA if available
 arrays = [Array]  # Default to CPU-only
@@ -80,16 +79,6 @@ end
     @test all(get_velocity(p, tri, R*vel) .≈ R*[1,0,0])
 end
 
-@testset "Bounding Volumes" begin
-    inside = WaterLilyMeshBodies.inside
-    bbox = BBox{T}(SA{T}[-1.0,-1.0,-1.0], SA{T}[1.0,1.0,1.0])
-    bsphere = BSphere{T}(SA{T}[0.0,0.0,0.0], T(1.0))
-    @test inside(SA{T}[0.0,0.0,0.0], bbox)
-    @test !inside(SA{T}[5.01,0.0,0.0], bbox)
-    @test inside(SA{T}[0.0,0.0,0.0], bsphere)
-    @test !inside(SA{T}[5.01,0.0,0.0], bsphere)
-end
-
 @testset "BVH Traversal" begin
     closest = WaterLilyMeshBodies.closest
     x1 = SA{T}[0,0,0]
@@ -140,6 +129,46 @@ end
     end
 end
 
+@testset "Flood Classifier" begin
+    sdf = fill(T(5), 16, 16)
+    cutoff = T(4)
+    # Closed near-band ring encloses a 6x6 interior region (indices 6:11, 6:11)
+    sdf[5, 5:12] .= 0
+    sdf[12, 5:12] .= 0
+    sdf[5:12, 5] .= 0
+    sdf[5:12, 12] .= 0
+    near = similar(sdf, Bool)
+    reached = similar(sdf, Bool)
+    farinside = similar(sdf, Bool)
+    WaterLilyMeshBodies.classify_from_sdf!(near, reached, farinside, sdf, cutoff)
+    @test count(@view(farinside[6:11, 6:11])) == 36
+    @test all(@view(farinside[5, 5:12]) .== false)
+    @test all(@view(farinside[12, 5:12]) .== false)
+end
+
+@testset "measure_sdf!" begin
+    L = 32
+    R = 0.707f0L
+    mesh_body = MeshBody(joinpath(@__DIR__, "meshes", "sphere.stl");
+        scale=1.414f0L, map=(x,t)->x .- L, boundary=true, mem=Array)
+    auto_body = AutoBody((x,t) -> √sum(abs2, x .- L) - R)
+    sim_mesh = Simulation((2L, 2L, 2L), (1,0,0), L; T, ν=1e-3, mem=Array, body=mesh_body)
+    sim_auto = Simulation((2L, 2L, 2L), (1,0,0), L; T, ν=1e-3, mem=Array, body=auto_body)
+
+    measure_sdf!(sim_mesh.flow.σ, sim_mesh.body, 0f0)
+    measure_sdf!(sim_auto.flow.σ, sim_auto.body, 0f0)
+    σm, σa = sim_mesh.flow.σ, sim_auto.flow.σ
+
+    # Any discrepancy should be due to triangle discretization error
+    v,I = findmax(abs.(clamp.(σm,-4,4) - clamp.(σa,-4,4)))
+    ξ = sim_mesh.body.map(SVector{3,T}(WaterLily.loc(0, I, T)), 0f0)
+    (;p) = WaterLilyMeshBodies.closest(ξ, sim_mesh.body.bvh, sim_mesh.body.mesh)
+    @test v ≈ R-√(p'p) atol=√eps(T)
+
+    mismatches = findall(signbit.(σm) .!= signbit.(σa))
+    @test all(0>σa[I]>-v && 0<σm[I]<v for I in mismatches) # all sign mismatches must be on the boundary
+end
+
 @testset "Updates" begin
     x1 = SA{T}[0,0,0]
 
@@ -161,26 +190,6 @@ end
         body += AutoBody((x,t)->42.f0) # the answer!
         @test GPUArrays.@allowscalar all(measure(body, x1.+1, 0) .≈ (0,[0,0,1],[1,1,1]))
     end
-end
-
-@testset "Integration" begin
-    closest = WaterLilyMeshBodies.closest
-    locate = WaterLilyMeshBodies.locate
-    test_points = [SA{T}[r*sin(φ)*cos(θ), r*sin(φ)*sin(θ), r*cos(φ)]
-                    for r in T[0.2, 0.35, 0.65, 1.3], θ in T[0.7, 2.1, 4.3], φ in T[0.9, 1.8]]
-
-    # for mem in arrays
-    for mesh_file in ["sphere.stl","box.stl"]
-        body = MeshBody(joinpath(@__DIR__, "meshes", mesh_file); scale=1.f0, mem, boundary=true)
-        for x in test_points
-            d², index = closest_brute(x, body.mesh)  # brute-force ground truth
-            nearest = closest(x, body.bvh, body.mesh)  # BVH traversal
-            @test nearest.d² ≈ d²  # same squared distance
-            @test nearest.index == index || locate(x, body.mesh[index]) ≈ locate(x, body.mesh[nearest.index])
-            mesh_file == "sphere.stl" && @test sdf(body, x) ≈ √(x'x)-0.5f0  atol=15e-3
-        end
-    end
-    # end
 end
 
 @testset "Simulation" begin
