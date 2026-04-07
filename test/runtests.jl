@@ -109,7 +109,7 @@ end
     @test sdf(body,SA{T}[1,0.1,1],0f0)<0
 end
 
-@testset "Measure & SDF" begin
+@testset "measure & sdf" begin
     measure = WaterLily.measure
     x1 = SA{T}[0,0,0]
     x2 = SA{T}[0.1,0.1,0.0]
@@ -123,9 +123,9 @@ end
         @test GPUArrays.@allowscalar all(body.bvh.nodes[1].lo .≈ [0,0,0]) # lowest point of tri1
         @test GPUArrays.@allowscalar all(measure(body, x1, 0) .≈ (0,[0,0,1],[0,0,0]))
         @test GPUArrays.@allowscalar all(isapprox.(measure(body, x2, 0),(0,[0,0,1],[0,0,0]),atol=1e-6))
-        @test GPUArrays.@allowscalar all(measure(body, SA{T}[.5,.5,100], 0) .≈ (4,[0,0,0],[0,0,0]))
+        @test GPUArrays.@allowscalar all(measure(body, SA{T}[.5,.5,100], 0, fastd²=16f0) .≈ (4,[0,0,0],[0,0,0]))
         xr = SVector{3,T}(rand(3))
-        @test GPUArrays.@allowscalar all(measure(body, xr, 0)[1] .≈ sdf(body, xr, 0))
+        @test GPUArrays.@allowscalar measure(body, xr, 0)[1] ≈ sdf(body, xr, 0, fastd²=Inf32)
     end
 end
 
@@ -140,7 +140,7 @@ end
     near = similar(sdf, Bool)
     reached = similar(sdf, Bool)
     farinside = similar(sdf, Bool)
-    WaterLilyMeshBodies.flood_fill!(near, reached, farinside, sdf, cutoff)
+    WaterLilyMeshBodies.flood_fill!(near, reached, farinside, sdf; cutoff)
     @test count(@view(farinside[6:11, 6:11])) == 36
     @test all(@view(farinside[5, 5:12]) .== false)
     @test all(@view(farinside[12, 5:12]) .== false)
@@ -152,18 +152,17 @@ end
     for mem in arrays
         mesh_body = MeshBody(joinpath(@__DIR__, "meshes", "sphere.stl");
             scale=1.414f0L, map=(x,t)->x .- L, boundary=true, mem)
-        auto_body = AutoBody((x,t) -> √sum(abs2, x .- L) - R)
-        sim_mesh = Simulation((2L, 2L, 2L), (1,0,0), L; T, ν=1e-3, mem, body=mesh_body)
-        sim_auto = Simulation((2L, 2L, 2L), (1,0,0), L; T, ν=1e-3, mem, body=auto_body)
+        σm = mem{T}(undef, 2L+2,2L+2,2L+2)
+        measure_sdf!(σm, mesh_body, 0f0, fastd²=16f0)
 
-        measure_sdf!(sim_mesh.flow.σ, sim_mesh.body, 0f0)
-        measure_sdf!(sim_auto.flow.σ, sim_auto.body, 0f0)
-        σm, σa = sim_mesh.flow.σ, sim_auto.flow.σ
+        auto_body = AutoBody((x,t) -> √sum(abs2, x .- L) - R)
+        σa = mem{T}(undef, 2L+2,2L+2,2L+2)
+        measure_sdf!(σa, auto_body, 0f0, fastd²=16f0)
 
         # Any discrepancy should be due to triangle discretization error
         v,I = findmax(abs.(clamp.(σm,-4,4) - clamp.(σa,-4,4)))
-        ξ = sim_mesh.body.map(SVector{3,T}(WaterLily.loc(0, I, T)), 0f0)
-        GPUArrays.@allowscalar (;p) = WaterLilyMeshBodies.closest(ξ, sim_mesh.body.bvh, sim_mesh.body.mesh)
+        ξ = mesh_body.map(SVector{3,T}(WaterLily.loc(0, I, T)), 0f0)
+        GPUArrays.@allowscalar (;p) = WaterLilyMeshBodies.closest(ξ, mesh_body.bvh, mesh_body.mesh)
         @test v ≈ R-√(p'p) atol=√eps(T)
 
         mismatches = findall(signbit.(σm) .!= signbit.(σa))

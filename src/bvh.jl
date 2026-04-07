@@ -14,9 +14,16 @@ end
 @inline dist(x, b::BoundingVolume) = dist(x, b.volume)
 
 # traverse the BVH
+struct ClosestPoint{D,T}
+    index::Int32
+    d²::T
+    n::SVector{D,T}
+    p::SVector{D,T}
+end
+
 @inline function closest(x::SVector{D,T},bvh::ImplicitBVH.BVH,mesh;init_d²=floatmax(T),verbose=false) where {D,T}
     ncheck=lcheck=tcheck=Int32(0) # initialize counts
-    best = (index=Int32(0),d²=init_d²,n=x,p=x) # initialize best element
+    best = ClosestPoint(Int32(0), init_d², x, x) # initialize best element
     # Depth-First-Search
     tree = bvh.tree; length_nodes = length(bvh.nodes)
     i=Int32(1); while true
@@ -34,10 +41,10 @@ end
                 d² = sum(abs2,x-p)
                 if best.index == 0 || d² < best.d²
                     n = normal(tri)
-                    best = (;index=Int32(j),d²,n,p)
+                    best = ClosestPoint(Int32(j), d², n, p)
                 elseif d² ≈ best.d²
                     n = normal(tri)
-                    abs((x-p)'n) > abs((x-best.p)'best.n) && (best = (;index=Int32(j),d²,n,p))
+                    abs((x-p)'n) > abs((x-best.p)'best.n) && (best = ClosestPoint(Int32(j), d², n, p))
                 end
             end
         end

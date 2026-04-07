@@ -6,14 +6,12 @@ using WaterLily
 import WaterLily: @loop, δ, loc
 
 # measure d,n,V
-function WaterLily.measure(body::MeshBody,x::SVector{D,T},t;fastd²=Inf) where {D,T}
+function WaterLily.measure(body::MeshBody{T},x::AbstractVector{T},t;fastd²=Inf) where T
     # locate the closest point on the mesh
-    ξ = body.map(x,t)
-    (;index,d²,n,p) = closest(ξ,body.bvh,body.mesh;init_d²= body.boundary ? floatmax(T) : T(16))
-    index==0 && return (T(4),zero(x),zero(x)) # no triangles within init_d²
+    ξ,(;index,d²,n,p) = locate(x, t,body,T(fastd²))
+    index==0 && return (T(√fastd²),zero(x),zero(x)) # no triangles within init_d²
     # signed Euclidian distance
-    d = copysign(√d²,n'*(ξ-p))
-    !body.boundary && (d = abs(d)-body.half_thk) # if the mesh is not a boundary, we need to adjust the distance
+    d = body.boundary ? copysign(√d²,n'*(ξ-p)) : √d² - body.half_thk
     d^2>fastd² && return (d,zero(x),zero(x)) # skip n,V
     # velocity at the mesh point
     dξdx = ForwardDiff.jacobian(x->body.map(x,t), ξ)
@@ -23,26 +21,38 @@ function WaterLily.measure(body::MeshBody,x::SVector{D,T},t;fastd²=Inf) where {
     return (d,dξdx\n,dξdx\dξdt+v)
 end
 
-function WaterLily.measure_sdf!(d::AbstractArray{T}, body::MeshBody, t=zero(T); fastd²=zero(T)) where T
-    # SDF within |d|≤cutoff
-    @inside d[I] = tightsdf(body, loc(0,I,T), t, T(4))
-
-    # If the mesh is not a boundary, adjust the distance and return 
-    body.boundary || return @inside d[I] = abs(d[I]) - body.half_thk
-
-    # Otherwise, flood-fill from the outside and make the distances negative inside the surface
-    near, reached, farinside = similar(d, Bool), similar(d, Bool), similar(d, Bool)
-    flood_fill!(near, reached, farinside, d, 1f0)
-    @inside d[I] = farinside[I] ? -abs(d[I]) : d[I]
+# measure d only
+@inline function WaterLily.sdf(body::MeshBody{T},x::AbstractVector{T},t;fastd²=1) where T
+    ξ,(;index,d²,n,p) = locate(x, t,body,T(fastd²))
+    index==0 && return T(√fastd²) # no triangles within init_d²
+    body.boundary ? copysign(√d²,n'*(ξ-p)) : √d² - body.half_thk
 end
-@inline function tightsdf(body, x, t, cutoff)
+@inline function locate(x,t,body,fastd²)
     ξ = body.map(x, t)
-    (;index,d²,n,p) = closest(ξ, body.bvh, body.mesh; init_d²=cutoff^2)
-    index==0 ? cutoff : copysign(√d²,n'*(ξ-p))
+    ξ,closest(ξ, body.bvh, body.mesh; init_d²=body.boundary ? fastd² : fastd² + body.half_thk^2)
+end
+"""
+    measure_sdf!(a::AbstractArray, body::MeshBody, t=0; fastd²=1)
+
+Fill `a` with the signed distance from `body` at time `t`. The distance is computed exactly within `d² ≤ fastd²`,
+and set to `√fastd²` outside this region. The method depends on `body.boundary`:
+ - `body.boundary == true`: The sign of the distance is determined by a global flood-fill. This requires `body.mesh` to be a closed manifold.
+ - `body.boundary == false`: The mesh is treated as a thin shell with half-thickness `body.half_thk`.
+"""
+function WaterLily.measure_sdf!(d::AbstractArray{T}, body::MeshBody{T}, t=zero(T); fastd²=one(T)) where T
+    # SDF within d²≤fastd²
+    @inside d[I] = sdf(body, loc(0,I,T), t; fastd²)
+
+    # Determine points inside the closed body.boundary using a flood fill
+    if body.boundary
+        near, reached, farinside = similar(d, Bool), similar(d, Bool), similar(d, Bool)
+        flood_fill!(near, reached, farinside, d)
+        @inside d[I] = farinside[I] ? -abs(d[I]) : d[I]
+    end
 end
 
-# Flood-fill classification helpers for measure_sdf! (boundary=true fast path)
-function flood_fill!(near, reached, scratch, sdf, cutoff=4f0)
+# Flood-fill to classify points as inside or outside a closed boundary
+function flood_fill!(near, reached, scratch, sdf; cutoff=1f0)
     near .= sdf .< cutoff
     r, s = reached, scratch
     fill!(r, true); r[inside(r)] .= false

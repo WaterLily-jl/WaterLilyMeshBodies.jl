@@ -28,7 +28,7 @@ LinearAlgebra = "1.10"
 MeshIO = "0.5.3"
 Printf = "1.10.0"
 StaticArrays = "^1.1.0"
-WaterLily = "1.5.2"
+WaterLily = "1.6.0"
 WriteVTK = "1.21.2"
 julia = "1.10"
 
