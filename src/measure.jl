@@ -45,7 +45,11 @@ function WaterLily.measure_sdf!(d::AbstractArray{T}, body::MeshBody{T}, t=zero(T
 
     # Determine points inside the closed body.boundary using a flood fill
     if body.boundary
-        near, reached, farinside = similar(d, Bool), similar(d, Bool), similar(d, Bool)
+        if body.cache === nothing
+            near, reached, farinside = similar(d, Bool), similar(d, Bool), similar(d, Bool)
+        else
+            near, reached, farinside = body.cache
+        end
         flood_fill!(near, reached, farinside, d)
         @inside d[I] = farinside[I] ? -abs(d[I]) : d[I]
     end

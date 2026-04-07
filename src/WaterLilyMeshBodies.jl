@@ -5,7 +5,7 @@ import WaterLily: AbstractBody, SetBody, save!, update!
 using FileIO, MeshIO
 using ImplicitBVH, GeometryBasics
 
-struct MeshBody{T,M,B,F} <: AbstractBody
+struct MeshBody{T,M,B,F,C} <: AbstractBody
     mesh::M
     velocity::M
     bvh::B
@@ -13,9 +13,11 @@ struct MeshBody{T,M,B,F} <: AbstractBody
     scale::T
     boundary::Bool
     half_thk::T
+    cache::C
 end
-function MeshBody(mesh::M,vel::M,bvh::B;map=(x,t)->x,scale=1.f0,boundary=false,half_thk=1.866f0) where {M,B}
-    return MeshBody{eltype(scale),M,B,typeof(map)}(mesh,vel,bvh,map,scale,boundary,half_thk)
+function MeshBody(mesh::M,vel::M,bvh::B;map=(x,t)->x,scale=1.f0,boundary=false,half_thk=1.866f0,size=nothing) where {M,B}
+    cache = isnothing(size) ? nothing : ntuple(i -> similar(mesh, Bool, size .+ 2), 3)
+    MeshBody{eltype(scale),M,B,typeof(map),typeof(cache)}(mesh,vel,bvh,map,scale,boundary,half_thk,cache)
 end
 using Adapt
 # make it GPU compatible
@@ -23,8 +25,9 @@ function Adapt.adapt_structure(to, body::MeshBody)
     mesh = Adapt.adapt(to, body.mesh)
     velocity = Adapt.adapt(to, body.velocity)
     bvh = Adapt.adapt(to, body.bvh)
-    MeshBody{typeof(body.scale),typeof(mesh),typeof(bvh),typeof(body.map)}(
-        mesh, velocity, bvh, body.map, body.scale, body.boundary, body.half_thk)
+    cache = Adapt.adapt(to, body.cache)
+    MeshBody{typeof(body.scale),typeof(mesh),typeof(bvh),typeof(body.map),typeof(cache)}(
+        mesh, velocity, bvh, body.map, body.scale, body.boundary, body.half_thk, cache)
 end
 
 """
