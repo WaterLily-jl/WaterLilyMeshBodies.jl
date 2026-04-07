@@ -27,6 +27,9 @@ function Adapt.adapt_structure(to, body::Meshbody)
         mesh, velocity, bvh, body.map, body.scale, body.boundary, body.half_thk)
 end
 
+# make it GPU compatible
+Adapt.@adapt_structure SetBody
+
 """
     MeshBody(mesh::Union{Mesh, String};
              map::Function=(x,t)->x, boundary::Bool=false, half_thk::T=1.866f0,
