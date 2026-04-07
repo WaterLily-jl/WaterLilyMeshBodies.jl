@@ -5,7 +5,7 @@ import WaterLily: AbstractBody, SetBody, save!, update!
 using FileIO, MeshIO
 using ImplicitBVH, GeometryBasics
 
-struct Meshbody{T,M,B,F} <: AbstractBody
+struct MeshBody{T,M,B,F} <: AbstractBody
     mesh::M
     velocity::M
     bvh::B
@@ -15,15 +15,15 @@ struct Meshbody{T,M,B,F} <: AbstractBody
     half_thk::T
 end
 function MeshBody(mesh::M,vel::M,bvh::B;map=(x,t)->x,scale=1.f0,boundary=false,half_thk=1.866f0) where {M,B}
-    return Meshbody{eltype(scale),M,B,typeof(map)}(mesh,vel,bvh,map,scale,boundary,half_thk)
+    return MeshBody{eltype(scale),M,B,typeof(map)}(mesh,vel,bvh,map,scale,boundary,half_thk)
 end
 using Adapt
 # make it GPU compatible
-function Adapt.adapt_structure(to, body::Meshbody)
+function Adapt.adapt_structure(to, body::MeshBody)
     mesh = Adapt.adapt(to, body.mesh)
     velocity = Adapt.adapt(to, body.velocity)
     bvh = Adapt.adapt(to, body.bvh)
-    Meshbody{typeof(body.scale),typeof(mesh),typeof(bvh),typeof(body.map)}(
+    MeshBody{typeof(body.scale),typeof(mesh),typeof(bvh),typeof(body.map)}(
         mesh, velocity, bvh, body.map, body.scale, body.boundary, body.half_thk)
 end
 

@@ -7,11 +7,11 @@ using Printf: @sprintf
 
 """
 
-    save!(writer::VTKWriter, body::Meshbody, t=writer.count[1])
+    save!(writer::VTKWriter, body::MeshBody, t=writer.count[1])
 
 Saves the mesh body as a VTK file using the WriteVTK package. The file name is generated using the writer's directory name, base file name, and the current count.
 """
-function save!(w,a::Meshbody,t=w.count[1])
+function save!(w,a::MeshBody,t=w.count[1])
     k = w.count[1]
     points = zeros(Float32, 3, 3length(a.mesh))
     for (i,el) in enumerate(Array(a.mesh))

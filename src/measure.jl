@@ -5,11 +5,10 @@ using ForwardDiff
 using WaterLily
 import WaterLily: @loop, δ, loc
 
-# measure
-function WaterLily.measure(body::Meshbody,x::SVector{D,T},t;fastd²=Inf) where {D,T}
-    # map to correct location
+# measure d,n,V
+function WaterLily.measure(body::MeshBody,x::SVector{D,T},t;fastd²=Inf) where {D,T}
+    # locate the closest point on the mesh
     ξ = body.map(x,t)
-    # locate the point on the mesh
     (;index,d²,n,p) = closest(ξ,body.bvh,body.mesh;init_d²= body.boundary ? floatmax(T) : T(16))
     index==0 && return (T(4),zero(x),zero(x)) # no triangles within init_d²
     # signed Euclidian distance
@@ -24,7 +23,7 @@ function WaterLily.measure(body::Meshbody,x::SVector{D,T},t;fastd²=Inf) where {
     return (d,dξdx\n,dξdx\dξdt+v)
 end
 
-function WaterLily.measure_sdf!(d::AbstractArray{T}, body::Meshbody, t=zero(T); fastd²=zero(T)) where T
+function WaterLily.measure_sdf!(d::AbstractArray{T}, body::MeshBody, t=zero(T); fastd²=zero(T)) where T
     # SDF within |d|≤cutoff
     @inside d[I] = tightsdf(body, loc(0,I,T), t, T(4))
 

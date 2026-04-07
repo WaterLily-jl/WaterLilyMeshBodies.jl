@@ -214,7 +214,7 @@ end
         map = RigidMap(center, theta; xₚ=center)
         body = MeshBody(mesh_file; scale=T(8), map, mem=CuArray)
         converted = CUDA.cudaconvert(body)
-        @test converted isa WaterLilyMeshBodies.Meshbody
+        @test converted isa WaterLilyMeshBodies.MeshBody
         @test converted.map === map
     else
         @test_skip "CUDA backend unavailable; skipping GPU-only RigidMap adaptation regression"

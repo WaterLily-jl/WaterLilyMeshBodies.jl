@@ -6,7 +6,7 @@ import ImplicitBVH: BBox, BVH
 import ConstructionBase: setproperties
 
 """
-    update!(body::Meshbody{T},new_mesh::AbstractArray,dt=0;kwargs...)
+    update!(body::MeshBody{T},new_mesh::AbstractArray,dt=0;kwargs...)
 
 Updates the mesh body position using the new mesh triangle coordinates.
 
@@ -15,7 +15,7 @@ Updates the mesh body position using the new mesh triangle coordinates.
     where `x[i]` is the new (t+Δt) position of the control point, `vᵢ` is the velocity at that control point.
 
 """
-function update!(a::Meshbody{T},new_mesh::AbstractArray,dt=0) where T
+function update!(a::MeshBody{T},new_mesh::AbstractArray,dt=0) where T
     Rs = CartesianIndices(a.mesh)
     # if nonzero time step, update the velocity field
     dt>0 && (@loop a.velocity[I] = (new_mesh[I]-a.mesh[I])/T(dt) over I in Rs)
@@ -26,4 +26,4 @@ end
 update!(body::AbstractBody,args...) = body
 update!(body::SetBody,args...) = SetBody(body.op,update!(body.a,args...),update!(body.b,args...))
 
-update_bvh(body::Meshbody; bvh) = setproperties(body, bvh=bvh)
+update_bvh(body::MeshBody; bvh) = setproperties(body, bvh=bvh)
