@@ -10,14 +10,12 @@ import ImplicitBVH: BBox, BSphere
 arrays = [Array]  # Default to CPU-only
 try
     using CUDA
-    if CUDA.functional()
+    if CUDA.functional() && WaterLily.backend != "SIMD"
         push!(arrays, CuArray)
-        @info "CUDA detected and functional - running tests on CPU and GPU"
-    else
-        @info "CUDA detected but not functional - running tests on CPU only"
+        @info "Running tests on CPU and GPU"
     end
 catch
-    @info "CUDA not available - running tests on CPU only"
+    @info "Running tests on CPU only"
 end
 
 T = Float32
@@ -130,44 +128,19 @@ end
 end
 
 @testset "Flood Classifier" begin
-    sdf = fill(T(5), 16, 16)
-    cutoff = T(4)
     # Closed near-band ring encloses a 6x6 interior region (indices 6:11, 6:11)
-    sdf[5, 5:12] .= 0
-    sdf[12, 5:12] .= 0
-    sdf[5:12, 5] .= 0
-    sdf[5:12, 12] .= 0
-    near = similar(sdf, Bool)
-    reached = similar(sdf, Bool)
-    farinside = similar(sdf, Bool)
-    WaterLilyMeshBodies.flood_fill!(near, reached, farinside, sdf; cutoff)
+    d = fill(T(5), 16, 16)
+    d[5, 5:12] .= 0
+    d[12, 5:12] .= 0
+    d[5:12, 5] .= 0
+    d[5:12, 12] .= 0
+    near = similar(d, Bool)
+    reached = similar(d, Bool); fill!(reached, true); reached[inside(d)] .= false
+    farinside = similar(d, Bool)
+    WaterLilyMeshBodies.flood_fill!(near, reached, farinside, d)
     @test count(@view(farinside[6:11, 6:11])) == 36
     @test all(@view(farinside[5, 5:12]) .== false)
     @test all(@view(farinside[12, 5:12]) .== false)
-end
-
-@testset "measure_sdf!" begin
-    L = 32
-    R = 0.707f0L
-    for mem in arrays
-        mesh_body = MeshBody(joinpath(@__DIR__, "meshes", "sphere.stl");
-            scale=1.414f0L, map=(x,t)->x .- L, boundary=true, mem)
-        σm = mem{T}(undef, 2L+2,2L+2,2L+2)
-        measure_sdf!(σm, mesh_body, 0f0, fastd²=16f0)
-
-        auto_body = AutoBody((x,t) -> √sum(abs2, x .- L) - R)
-        σa = mem{T}(undef, 2L+2,2L+2,2L+2)
-        measure_sdf!(σa, auto_body, 0f0, fastd²=16f0)
-
-        # Any discrepancy should be due to triangle discretization error
-        v,I = findmax(abs.(clamp.(σm,-4,4) - clamp.(σa,-4,4)))
-        ξ = mesh_body.map(SVector{3,T}(WaterLily.loc(0, I, T)), 0f0)
-        GPUArrays.@allowscalar (;p) = WaterLilyMeshBodies.closest(ξ, mesh_body.bvh, mesh_body.mesh)
-        @test v ≈ R-√(p'p) atol=√eps(T)
-
-        mismatches = findall(signbit.(σm) .!= signbit.(σa))
-        @test GPUArrays.@allowscalar all(0>σa[I]>-v && 0<σm[I]<v for I in mismatches) # all sign mismatches must be on the boundary
-    end
 end
 
 @testset "Updates" begin
@@ -190,6 +163,57 @@ end
         # try inside SetBody
         body += AutoBody((x,t)->42.f0) # the answer!
         @test GPUArrays.@allowscalar all(measure(body, x1.+1, 0) .≈ (0,[0,0,1],[1,1,1]))
+    end
+end
+
+@testset "measure_sdf!" begin
+    L = 16; R = 0.707f0L; size = (2L, 2L, 2L)
+    fastd²=9f0; cutoff = sqrt(fastd²)
+    for mem in arrays
+        # Compare MeshBody SDF to AutoBody SDF for a sphere
+        mesh_body = MeshBody(joinpath(@__DIR__, "meshes", "sphere.stl");
+            scale=2R, map=(x,t)->x .- L, boundary=true, mem)
+        σm = zeros(T,size .+ 2) |>  mem
+        measure_sdf!(σm, mesh_body, 0f0; fastd²)
+        @test mesh_body.cache === nothing 
+
+        auto_body = AutoBody((x,t) -> √sum(abs2, x .- L) - R)
+        σa = zeros(T,size .+ 2) |>  mem
+        measure_sdf!(σa, auto_body, 0f0; fastd²)
+
+        # Any discrepancy should be due to triangle discretization error
+        v,I = findmax(abs.(σm - clamp.(σa,-cutoff,cutoff)))
+        ξ = mesh_body.map(SVector{3,T}(WaterLily.loc(0, I, T)), 0f0)
+        GPUArrays.@allowscalar (;p) = WaterLilyMeshBodies.closest(ξ, mesh_body.bvh, mesh_body.mesh)
+        @test v ≈ R-√(p'p) atol=√eps(T)
+
+        # all sign mismatches must be on the boundary
+        mismatches = findall(signbit.(σm) .!= signbit.(σa))
+        @test GPUArrays.@allowscalar all(0>σa[I]>-v && 0<σm[I]<v for I in mismatches) 
+
+        # test caching 
+        cache_body = MeshBody(joinpath(@__DIR__, "meshes", "sphere.stl");
+            scale=2R, map=(x,t)->x .- L, boundary=true, mem, size)
+        σc = zeros(T,size .+ 2) |>  mem
+        @test !isnothing(cache_body.cache)
+
+        measure_sdf!(σc, cache_body, 0f0; fastd²)
+        @test σc ≈ σm
+        num_near,num_reached,num_farinside = count.(cache_body.cache)
+        @test num_farinside ≈ 4π/3*R^3-4π*R^2 rtol = 0.05 # should be close to the number of points in the interior
+
+        # shift the mesh by 1/2 cell and check that cache persists
+        cache_body = update!(cache_body, [tri .+ 0.5 for tri in cache_body.mesh], 1f0)
+        abs_vel(vel) = maximum(√sum(abs2,vertex) for vertex in eachcol(vel))
+        @test maximum(abs_vel.(cache_body.velocity)) < 1 # can't shift by more than 1 cell in one time step
+        @test all((num_near,num_reached,num_farinside) .== count.(cache_body.cache))
+
+        # warm-start should give same farinside count and same result after an integer shift
+        measure_sdf!(σc, cache_body, 1f0; fastd²)
+        cache_body = update!(cache_body, [tri .+ 0.5 for tri in cache_body.mesh], 1f0)
+        measure_sdf!(σc, cache_body, 1f0; fastd²)
+        @test num_farinside == count(cache_body.cache[3])
+        @test σc[3:2L-1,3:2L-1,3:2L-1] ≈ σm[2:2L-2,2:2L-2,2:2L-2]
     end
 end
 

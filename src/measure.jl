@@ -47,6 +47,7 @@ function WaterLily.measure_sdf!(d::AbstractArray{T}, body::MeshBody{T}, t=zero(T
     if body.boundary
         if body.cache === nothing
             near, reached, farinside = similar(d, Bool), similar(d, Bool), similar(d, Bool)
+            fill!(reached, true); reached[inside(d)] .= false
         else
             near, reached, farinside = body.cache
         end
@@ -57,19 +58,16 @@ end
 
 # Flood-fill to classify points as inside or outside a closed boundary
 function flood_fill!(near, reached, scratch, sdf; cutoff=1f0)
-    near .= sdf .< cutoff
-    r, s = reached, scratch
-    fill!(r, true); r[inside(r)] .= false
-    for _ in 1:max(0, min(size(r)...) ÷ 2)
-        copyto!(s, r)
-        @inside s[I] = flood_update!(I, r, near)
-        r == s && break # converged
-        r, s = s, r
+    @. near = abs(sdf) < cutoff
+    copyto!(scratch,reached)
+    for _ in 1:min(size(near)...)÷2
+        @inside scratch[I] = flood_update(I, reached, near)
+        @inside reached[I] = flood_update(I, scratch, near)
+        reached == scratch && break # converged
     end
-    r !== reached && copyto!(reached, r)
-    @. scratch = !near && !reached
+    @. scratch = !near && !reached # far-inside
 end
-@inline function flood_update!(I::CartesianIndex{d}, r, blocked) where d
+@inline function flood_update(I::CartesianIndex{d}, r, blocked) where d
     blocked[I] && return false
     f = r[I]
     for i in 1:d

@@ -21,9 +21,7 @@ function update!(a::MeshBody{T},new_mesh::AbstractArray,dt=0) where T
     dt>0 && (@loop a.velocity[I] = (new_mesh[I]-a.mesh[I])/T(dt) over I in Rs)
     @loop a.mesh[I] = new_mesh[I] over I in Rs
     # update the BVH
-    update_bvh(a, bvh=BVH(ImplicitBVH.BBox{T}.(a.mesh), ImplicitBVH.BBox{T}))
+    setproperties(a, bvh=BVH(ImplicitBVH.BBox{T}.(a.mesh), ImplicitBVH.BBox{T}))
 end
 update!(body::AbstractBody,args...) = body
 update!(body::SetBody,args...) = SetBody(body.op,update!(body.a,args...),update!(body.b,args...))
-
-update_bvh(body::MeshBody; bvh) = setproperties(body, bvh=bvh)
