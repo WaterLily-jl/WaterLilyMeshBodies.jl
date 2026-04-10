@@ -72,6 +72,7 @@ include("bvh.jl")
 include("measure.jl")
 include("update.jl")
 include("io.jl")
+include("interpolation.jl")
 
 export MeshBody, save!, update!
 

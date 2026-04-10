@@ -14,6 +14,11 @@ Updates the mesh body position using the new mesh triangle coordinates.
     vᵢ(t+Δt) = (xᵢ(t+Δt) - xᵢ(t))/dt
     where `x[i]` is the new (t+Δt) position of the control point, `vᵢ` is the velocity at that control point.
 
+This function mutates internal fields of `MeshBody`, but must also replace your body in the simulation
+```julia
+sim.body = update!(sim.body, new_mesh, dt)
+```
+otherwise the `BVH` will not be updated correctly.
 """
 function update!(a::MeshBody{T},new_mesh::AbstractArray,dt=0) where T
     Rs = CartesianIndices(a.mesh)

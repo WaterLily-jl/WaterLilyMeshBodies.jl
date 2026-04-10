@@ -175,7 +175,7 @@ end
             scale=2R, map=(x,t)->x .- L, boundary=true, mem)
         σm = zeros(T,size .+ 2) |>  mem
         measure_sdf!(σm, mesh_body, 0f0; fastd²)
-        @test mesh_body.cache === nothing 
+        @test mesh_body.cache === nothing
 
         auto_body = AutoBody((x,t) -> √sum(abs2, x .- L) - R)
         σa = zeros(T,size .+ 2) |>  mem
@@ -189,9 +189,9 @@ end
 
         # all sign mismatches must be on the boundary
         mismatches = findall(signbit.(σm) .!= signbit.(σa))
-        @test GPUArrays.@allowscalar all(0>σa[I]>-v && 0<σm[I]<v for I in mismatches) 
+        @test GPUArrays.@allowscalar all(0>σa[I]>-v && 0<σm[I]<v for I in mismatches)
 
-        # test caching 
+        # test caching
         cache_body = MeshBody(joinpath(@__DIR__, "meshes", "sphere.stl");
             scale=2R, map=(x,t)->x .- L, boundary=true, mem, size)
         σc = zeros(T,size .+ 2) |>  mem
@@ -262,5 +262,34 @@ end
         sim_step!(sim, 0.1, remeasure=false)
         @test maximum(sim.pois.n) < 10
         @test 1 > sim.flow.Δt[end] > 0
+    end
+end
+
+@testset "MotionInterpolation" begin
+    N = 4
+    # 4 snapshots: shift all vertices uniformly by k-1 in each direction
+    motion_data = [tri1 .+ T(k-1) for k in 1:N, j in 1:2]
+    times_u  = T.(0:N-1)               # uniform spacing
+    times_nu = T.([0, 0.3, 1.2, 3.0])  # non-uniform spacing
+
+    for mem in arrays
+        # helper: fresh body with original triangles
+        mk_body() = (m = mem([tri1, R*tri1 .+ 1]);
+                     MeshBody(m, zero(m), ImplicitBVH.BVH(BBox{T}.(m), BBox{T}), half_thk=0f0))
+
+        # at a knot time τ=0, Hermite basis reduces to identity: returns exact snapshot
+        b1 = interpolate!(mk_body(), MotionInterpolation(mem(motion_data), times_u), T(1))
+        @test GPUArrays.@allowscalar all(b1.mesh[1] .≈ motion_data[2, 1])
+        b2 = interpolate!(mk_body(), MotionInterpolation(mem(motion_data), times_u), T(2))
+        @test GPUArrays.@allowscalar all(b2.mesh[1] .≈ motion_data[3, 1])
+
+        # periodic: t=0 and t=period give the same mesh
+        b_t0 = interpolate!(mk_body(), MotionInterpolation(mem(motion_data), times_u; periodic=true), T(0))
+        b_tN = interpolate!(mk_body(), MotionInterpolation(mem(motion_data), times_u; periodic=true), T(N))
+        @test GPUArrays.@allowscalar all(b_t0.mesh[1] .≈ b_tN.mesh[1])
+
+        # non-uniform spacing: at a knot still returns exact snapshot
+        b_nu = interpolate!(mk_body(), MotionInterpolation(mem(motion_data), times_nu), T(0.3))
+        @test GPUArrays.@allowscalar all(b_nu.mesh[1] .≈ motion_data[2, 1])
     end
 end
