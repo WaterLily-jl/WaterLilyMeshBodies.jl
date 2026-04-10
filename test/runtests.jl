@@ -1,5 +1,5 @@
 using WaterLilyMeshBodies
-using Test, GPUArrays, StaticArrays, WaterLily, LinearAlgebra
+using Test, GPUArrays, StaticArrays, WaterLily, LinearAlgebra, GeometryBasics
 import ImplicitBVH
 import ImplicitBVH: BBox, BSphere
 
@@ -248,5 +248,20 @@ end
         @test converted.map === map
     else
         @test_skip "CUDA backend unavailable; skipping GPU-only RigidMap adaptation regression"
+    end
+end
+
+@testset "Quad mesh" begin
+    L = 8
+    for mem in arrays
+        rect = Rect((0.f0, 0.f0, 0.f0), (1.f0, 1.f0, 1.f0))
+        points = decompose(Point{3, Float32}, rect)
+        faces = decompose(QuadFace{Int}, rect)
+        mesh = GeometryBasics.Mesh(points, faces)
+        body = MeshBody(mesh; scale = T(L/4.f0), map = (x,t) -> x - SA_F32[L,L÷3,L÷3], mem)
+        sim = Simulation((2L, L, L), (1,0,0), L; body, T, ν=1e-3, mem)
+        sim_step!(sim, 0.1, remeasure=false)
+        @test maximum(sim.pois.n) < 10
+        @test 1 > sim.flow.Δt[end] > 0
     end
 end
