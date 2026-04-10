@@ -221,7 +221,13 @@ end
     L = 8
     for mem in arrays
         body = MeshBody(joinpath(@__DIR__, "meshes", "sphere.stl");
-            scale = T(L), map = (x,t) -> x - SA[L,0,0], mem)
+                        scale = T(L), map = (x,t) -> x - SA[L,0,0], mem)
+        sim = Simulation((2L, L, L), (1,0,0), L; body, T, ν=1e-3, mem)
+        sim_step!(sim, 0.1, remeasure=false)
+        @test maximum(sim.pois.n) < 10
+        @test 1 > sim.flow.Δt[end] > 0
+        # test with SetBody
+        body += AutoBody((x,t)->42.f0)
         sim = Simulation((2L, L, L), (1,0,0), L; body, T, ν=1e-3, mem)
         sim_step!(sim, 0.1, remeasure=false)
         @test maximum(sim.pois.n) < 10
