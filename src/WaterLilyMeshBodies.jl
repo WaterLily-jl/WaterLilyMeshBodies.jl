@@ -17,7 +17,7 @@ struct MeshBody{T,M,B,F,C} <: AbstractBody
 end
 function MeshBody(mesh::M,vel::M,bvh::B;map=(x,t)->x,scale=1.f0,boundary=false,half_thk=1.866f0,size=nothing) where {M,B}
     cache = isnothing(size) ? nothing : ntuple(i -> similar(mesh, Bool, size .+ 2), 3)
-    isnothing(cache) || (a = cache[2]; fill!(a, true); a[inside(a)] .= false)
+    isnothing(cache) || outside!(cache[2], bvh, x->map(x,0f0))
     MeshBody{eltype(scale),M,B,typeof(map),typeof(cache)}(mesh,vel,bvh,map,scale,boundary,half_thk,cache)
 end
 using Adapt

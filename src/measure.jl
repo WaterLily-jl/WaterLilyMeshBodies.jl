@@ -13,12 +13,12 @@ function WaterLily.measure(body::MeshBody{T},x::AbstractVector{T},t;fastd²=Inf)
     # signed Euclidian distance
     d = body.boundary ? copysign(√d²,n'*(ξ-p)) : √d² - body.half_thk
     d^2>fastd² && return (d,zero(x),zero(x)) # skip n,V
-    # velocity at the mesh point
-    dξdx = ForwardDiff.jacobian(x->body.map(x,t), ξ)
-    dξdt = -ForwardDiff.derivative(t->body.map(x,t), t)
-    # mesh deformation velocity
+    # velocities
     v = get_velocity(p, body.mesh[index], body.velocity[index])
-    return (d,dξdx\n,dξdx\dξdt+v)
+    dξdt = ForwardDiff.derivative(t->body.map(x,t), t)
+    # x-form back with Jacobian
+    dξdx = ForwardDiff.jacobian(x->body.map(x,t), ξ)
+    return (d,hat(dξdx'n),dξdx\(v-dξdt))
 end
 
 # measure d only
@@ -47,7 +47,7 @@ function WaterLily.measure_sdf!(d::AbstractArray{T}, body::MeshBody{T}, t=zero(T
     if body.boundary
         if body.cache === nothing
             near, reached, farinside = similar(d, Bool), similar(d, Bool), similar(d, Bool)
-            fill!(reached, true); reached[inside(d)] .= false
+            outside!(reached, body.bvh, x->body.map(x,t))
         else
             near, reached, farinside = body.cache
         end
@@ -57,6 +57,7 @@ function WaterLily.measure_sdf!(d::AbstractArray{T}, body::MeshBody{T}, t=zero(T
 end
 
 # Flood-fill to classify points as inside or outside a closed boundary
+outside!(reached,bvh,map) = @loop reached[I] = dist(map(loc(0,I)), bvh.nodes[1])>1 over I ∈ CartesianIndices(reached)
 function flood_fill!(near, reached, scratch, sdf; cutoff=1f0)
     @. near = abs(sdf) < cutoff
     copyto!(scratch,reached)
