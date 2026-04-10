@@ -203,14 +203,15 @@ end
         @test num_farinside ≈ 4π/3*R^3-4π*R^2 rtol = 0.05 # should be close to the number of points in the interior
 
         # shift the mesh by 1/2 cell and check that cache persists
-        cache_body = update!(cache_body, [tri .+ 0.5 for tri in cache_body.mesh], 1f0)
+        shift(tri) = tri .+ 0.5
+        cache_body = update!(cache_body, shift.(cache_body.mesh), 1f0)
         abs_vel(vel) = maximum(√sum(abs2,vertex) for vertex in eachcol(vel))
         @test maximum(abs_vel.(cache_body.velocity)) < 1 # can't shift by more than 1 cell in one time step
         @test all((num_near,num_reached,num_farinside) .== count.(cache_body.cache))
 
         # warm-start should give same farinside count and same result after an integer shift
         measure_sdf!(σc, cache_body, 1f0; fastd²)
-        cache_body = update!(cache_body, [tri .+ 0.5 for tri in cache_body.mesh], 1f0)
+        cache_body = update!(cache_body, shift.(cache_body.mesh), 1f0)
         measure_sdf!(σc, cache_body, 1f0; fastd²)
         @test num_farinside == count(cache_body.cache[3])
         @test σc[3:2L-1,3:2L-1,3:2L-1] ≈ σm[2:2L-2,2:2L-2,2:2L-2]
