@@ -5,16 +5,13 @@ using ForwardDiff
 using WaterLily
 import WaterLily: @loop, δ, loc
 
-# measure
-function WaterLily.measure(body::Meshbody,x::SVector{D,T},t;fastd²=Inf) where {D,T}
-    # map to correct location
-    ξ = body.map(x,t)
-    # locate the point on the mesh
-    (;index,d²,n,p) = closest(ξ,body.bvh,body.mesh;init_d²= body.boundary ? floatmax(T) : T(16))
-    index==0 && return (T(4),zero(x),zero(x)) # no triangles within init_d²
+# measure d,n,V
+function WaterLily.measure(body::MeshBody{T},x::AbstractVector{T},t;fastd²=Inf) where T
+    # locate the closest point on the mesh
+    ξ,(;index,d²,n,p) = locate(x, t,body,T(fastd²))
+    index==0 && return (T(√fastd²),zero(x),zero(x)) # no triangles within init_d²
     # signed Euclidian distance
-    d = copysign(√d²,n'*(ξ-p))
-    !body.boundary && (d = abs(d)-body.half_thk) # if the mesh is not a boundary, we need to adjust the distance
+    d = body.boundary ? copysign(√d²,n'*(ξ-p)) : √d² - body.half_thk
     d^2>fastd² && return (d,zero(x),zero(x)) # skip n,V
     # velocity at the mesh point
     dξdx = ForwardDiff.jacobian(x->body.map(x,t), ξ)
@@ -24,40 +21,53 @@ function WaterLily.measure(body::Meshbody,x::SVector{D,T},t;fastd²=Inf) where {
     return (d,dξdx\n,dξdx\dξdt+v)
 end
 
-function WaterLily.measure_sdf!(d::AbstractArray{T}, body::Meshbody, t=zero(T); fastd²=zero(T)) where T
-    # Get the region of interest (ROI) from the BVH, and get the signed SDF within |d|≤cutoff
-    cutoff = T(4)
-    @inside d[I] = tightsdf(body, loc(0,I,T), t, cutoff)
-
-    # If the mesh is not a boundary, adjust the distance and return 
-    body.boundary || return @inside d[I] = abs(d[I]) - body.half_thk
-
-    # Otherwise, flood-fill from the outside and make the distances negative inside the surface
-    near,reached, farinside = similar(d, Bool), similar(d, Bool), similar(d, Bool)
-    classify_from_sdf!(near, reached, farinside, d, cutoff)
-    @inside d[I] = farinside[I] ? -abs(d[I]) : d[I]
+# measure d only
+@inline function WaterLily.sdf(body::MeshBody{T},x::AbstractVector{T},t;fastd²=1) where T
+    ξ,(;index,d²,n,p) = locate(x, t,body,T(fastd²))
+    index==0 && return T(√fastd²) # no triangles within init_d²
+    body.boundary ? copysign(√d²,n'*(ξ-p)) : √d² - body.half_thk
 end
-@inline function tightsdf(body, x, t, cutoff)
+@inline function locate(x,t,body,fastd²)
     ξ = body.map(x, t)
-    (;index,d²,n,p) = closest(ξ, body.bvh, body.mesh; init_d²=cutoff^2)
-    index==0 ? cutoff : copysign(√d²,n'*(ξ-p))
+    ξ,closest(ξ, body.bvh, body.mesh; init_d²=body.boundary ? fastd² : fastd² + body.half_thk^2)
+end
+"""
+    measure_sdf!(a::AbstractArray, body::MeshBody, t=0; fastd²=1)
+
+Fill `a` with the signed distance from `body` at time `t`. The distance is computed exactly within `d² ≤ fastd²`,
+and set to `√fastd²` outside this region. The method depends on `body.boundary`:
+ - `body.boundary == true`: The sign of the distance is determined by a global flood-fill. This requires `body.mesh` to be a closed manifold.
+ - `body.boundary == false`: The mesh is treated as a thin shell with half-thickness `body.half_thk`.
+"""
+function WaterLily.measure_sdf!(d::AbstractArray{T}, body::MeshBody{T}, t=zero(T); fastd²=1) where T
+    # SDF within d²≤fastd²
+    @inside d[I] = sdf(body, loc(0,I,T), t; fastd²)
+
+    # Determine points inside the closed body.boundary using a flood fill
+    if body.boundary
+        if body.cache === nothing
+            near, reached, farinside = similar(d, Bool), similar(d, Bool), similar(d, Bool)
+            fill!(reached, true); reached[inside(d)] .= false
+        else
+            near, reached, farinside = body.cache
+        end
+        flood_fill!(near, reached, farinside, d)
+        @inside d[I] = farinside[I] ? -abs(d[I]) : d[I]
+    end
 end
 
-# Flood-fill classification helpers for measure_sdf! (boundary=true fast path)
-function classify_from_sdf!(near, reached, scratch, sdf, cutoff=4f0)
-    near .= sdf .< cutoff
-    r, s = reached, scratch
-    fill!(r, true); r[inside(r)] .= false
-    for _ in 1:max(0, min(size(r)...) ÷ 2)
-        copyto!(s, r)
-        @inside s[I] = flood_update!(I, r, near)
-        r == s && break # converged
-        r, s = s, r
+# Flood-fill to classify points as inside or outside a closed boundary
+function flood_fill!(near, reached, scratch, sdf; cutoff=1f0)
+    @. near = abs(sdf) < cutoff
+    copyto!(scratch,reached)
+    for _ in 1:min(size(near)...)÷2
+        @inside scratch[I] = flood_update(I, reached, near)
+        @inside reached[I] = flood_update(I, scratch, near)
+        reached == scratch && break # converged
     end
-    r !== reached && copyto!(reached, r)
-    @. scratch = !near && !reached
+    @. scratch = !near && !reached # far-inside
 end
-@inline function flood_update!(I::CartesianIndex{d}, r, blocked) where d
+@inline function flood_update(I::CartesianIndex{d}, r, blocked) where d
     blocked[I] && return false
     f = r[I]
     for i in 1:d
