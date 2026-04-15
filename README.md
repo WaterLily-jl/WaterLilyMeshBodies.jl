@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/WaterLily-jl/WaterLilyMeshBodies.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/WaterLily-jl/WaterLilyMeshBodies.jl/actions/workflows/CI.yml)
 
-![dolphin](example/dolphin.png)
+![dolphin](example/WLdolphin.gif)
 
 `WaterLilyMeshBodies` is a companion package to [WaterLily.jl](https://github.com/WaterLily-jl/WaterLily.jl) that defines a `MeshBody` type and a few `measure`ment functions that compute the signed distance, surface normal, and surface velocity as needed for a WaterLily simulation. The function runs in $O(\log N)$ time through the use of a Bounding Volume Hierarchy, and works on any backend (single or multi-threaded CPU and GPU).
 
