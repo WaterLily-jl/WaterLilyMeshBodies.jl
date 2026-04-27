@@ -3,7 +3,7 @@
 using StaticArrays
 using ForwardDiff
 using WaterLily
-import WaterLily: @loop, δ, loc, comm!, global_allreduce
+import WaterLily: @loop, δ, loc, comm!, global_allreduce, mpi_nprocs
 
 # measure d,n,V
 function WaterLily.measure(body::MeshBody{T},x::AbstractVector{T},t;fastd²=Inf) where T
@@ -69,13 +69,13 @@ outside!(reached,bvh,map) = @loop reached[I] = dist(map(loc(0,I)), bvh.nodes[1])
 function flood_fill!(near, reached, scratch, sdf; cutoff=1f0)
     @. near = abs(sdf) < cutoff
     copyto!(scratch,reached)
-    nranks = global_allreduce(1)            # 1 in serial, total ranks under MPI
-    for _ in 1:nranks * min(size(near)...)
+    np = mpi_nprocs()
+    for _ in 1:np * min(size(near)...)
         @inside scratch[I] = flood_update(I, reached, near)
         comm!(scratch, ())
         @inside reached[I] = flood_update(I, scratch, near)
         comm!(reached, ())
-        global_allreduce(reached == scratch ? 1 : 0) == nranks && break
+        global_allreduce(reached == scratch ? 1 : 0) == np && break
     end
     @. scratch = !near && !reached # far-inside
 end
