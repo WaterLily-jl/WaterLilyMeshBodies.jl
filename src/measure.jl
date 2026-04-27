@@ -3,7 +3,7 @@
 using StaticArrays
 using ForwardDiff
 using WaterLily
-import WaterLily: @loop, δ, loc
+import WaterLily: @loop, δ, loc, comm!, global_allreduce, mpi_nprocs
 
 # measure d,n,V
 function WaterLily.measure(body::MeshBody{T},x::AbstractVector{T},t;fastd²=Inf) where T
@@ -56,15 +56,26 @@ function WaterLily.measure_sdf!(d::AbstractArray{T}, body::MeshBody{T}, t=zero(T
     end
 end
 
-# Flood-fill to classify points as inside or outside a closed boundary
+# Flood-fill to classify points as inside or outside a closed boundary.
+# Under MPI, ghosts are synced via comm! between iterations and convergence is
+# a global AND (sum-reduction over ranks) so all ranks break together. The
+# pre-loop ghost sync of `reached` is unneeded: `outside!` runs the same BVH
+# distance test on every cell of every rank, so ghost-row entries already
+# match the neighbour's interior value (the mesh is rank-replicated). The two
+# in-loop halos are load-bearing — `flood_update` reads `r[I±δ]`, so each
+# `@inside` write must be followed by a halo before the next read consumes
+# its ghosts.  In serial, comm!/global_allreduce devirtualise to no-ops.
 outside!(reached,bvh,map) = @loop reached[I] = dist(map(loc(0,I)), bvh.nodes[1])>1 over I ∈ CartesianIndices(reached)
 function flood_fill!(near, reached, scratch, sdf; cutoff=1f0)
     @. near = abs(sdf) < cutoff
     copyto!(scratch,reached)
-    for _ in 1:min(size(near)...)÷2
+    np = mpi_nprocs()
+    for _ in 1:np * min(size(near)...)
         @inside scratch[I] = flood_update(I, reached, near)
+        comm!(scratch, ())
         @inside reached[I] = flood_update(I, scratch, near)
-        reached == scratch && break # converged
+        comm!(reached, ())
+        global_allreduce(reached == scratch ? 1 : 0) == np && break
     end
     @. scratch = !near && !reached # far-inside
 end

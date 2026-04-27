@@ -1,6 +1,6 @@
 # VTK export functions
 
-import WaterLily: AbstractBody, SetBody, save!
+import WaterLily: AbstractBody, SetBody, save!, mpi_rank
 import WriteVTK: MeshCell, VTKCellTypes, vtk_grid, vtk_save
 using GeometryBasics: TriangleFace
 using Printf: @sprintf
@@ -12,6 +12,7 @@ using Printf: @sprintf
 Saves the mesh body as a VTK file using the WriteVTK package. The file name is generated using the writer's directory name, base file name, and the current count.
 """
 function save!(w,a::MeshBody,t=w.count[1])
+    mpi_rank() == 0 || return  # mesh is rank-replicated; only rank 0 writes
     k = w.count[1]
     points = zeros(Float32, 3, 3length(a.mesh))
     for (i,el) in enumerate(Array(a.mesh))
