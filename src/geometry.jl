@@ -15,21 +15,21 @@ import WaterLily: ×
 @fastmath @inline get_velocity(p::SVector, tri, vel)= (dA=shape_value(p,tri); vel*dA/sum(dA))
 
 # locate the closest point p to x on triangle tri
-function locate(x::SVector{T},tri::SMatrix{T}) where T
+function locate(x::SVector{D,T},tri::SMatrix{D}) where {D,T}
     # unpack the triangle vertices
     a,b,c = tri[:,1],tri[:,2],tri[:,3]
     ab,ac,ap = b-a, c-a, x-a
     d1,d2 = ab'ap, ac'ap
     # is point `a` closest?
-    ((d1 ≤ 0) && (d2 ≤ 0)) && (return a)
+    ((d1 ≤ 0) && (d2 ≤ 0)) && (return T.(a))
     # is point `b` closest?
     bp = x-b
     d3,d4 = ab'bp, ac'bp
-    ((d3 ≥ 0) && (d4 ≤ d3)) && (return b)
+    ((d3 ≥ 0) && (d4 ≤ d3)) && (return T.(b))
     # is point `c` closest?
     cp = x-c
     d5,d6 = ab'cp, ac'cp
-    ((d6 ≥ 0) && (d5 ≤ d6)) && (return c)
+    ((d6 ≥ 0) && (d5 ≤ d6)) && (return T.(c))
     # is segment 'ab' closest?
     vc = d1*d4 - d3*d2
     ((vc ≤ 0) && (d1 ≥ 0) && (d3 ≤ 0)) && (return a + (d1/(d1-d3))*ab)

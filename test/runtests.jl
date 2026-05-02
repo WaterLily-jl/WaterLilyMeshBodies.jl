@@ -294,3 +294,19 @@ end
         @test GPUArrays.@allowscalar all(b_nu.mesh[1] .≈ motion_data[2, 1])
     end
 end
+
+@testset "MeshBody nested ForwardDiff (GPU-safe)" begin
+    using ForwardDiff
+    function measure_sum(θ, mem)
+        s, c = sincos(θ)
+        Rmat = SA[c -s 0; s c 0; 0 0 1]
+        body = MeshBody(joinpath(@__DIR__, "meshes", "sphere.stl");
+                        scale=16f0, map=(x,_) -> Rmat*(x.-32), boundary=true, mem)
+        sum(GPUArrays.@allowscalar WaterLily.measure(body, x, 0f0; fastd²=Inf32)[2][1]
+            for x in (SA{Float32}[24,36,34], SA{Float32}[38,29,27], SA{Float32}[30,23,39]))
+    end
+    for f ∈ arrays, Tθ ∈ (Float32, Float64)
+        cpu_d = ForwardDiff.derivative(t -> measure_sum(t, Array), Tθ(0.3))
+        @test ForwardDiff.derivative(t -> measure_sum(t, f), Tθ(0.3)) ≈ cpu_d rtol=1e-3
+    end
+end
