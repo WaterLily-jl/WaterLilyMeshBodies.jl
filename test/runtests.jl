@@ -166,6 +166,31 @@ end
     end
 end
 
+@testset "Non-affine map Jacobian" begin
+    # folds z about the plane z=0.5, mirroring the symmetry maps used in production sims
+    foldmap(x,t) = SA[x[1], x[2], abs(x[3]-0.5f0)]
+
+    for mem in arrays
+        mesh = mem([tri1])
+        bvh = ImplicitBVH.BVH(BBox{T}.(mesh), BBox{T})
+        body = MeshBody(mesh, zero(mesh), bvh, half_thk=0f0, map=foldmap)
+
+        # move the triangle by +1 in z over dt=1 -> uniform real-space z-velocity of 1
+        body = update!(body, mem([tri1 .+ SA{T}[0,0,1]]), 1.0)
+
+        # query points symmetric about the fold plane, close to the triangle
+        x_above = SA{T}[0.2,0.2,0.6] # physically above the fold plane
+        x_below = SA{T}[0.2,0.2,0.4] # physically below the fold plane
+
+        # a uniform real-space velocity must transform with opposite sign on either side of
+        # a folding map's symmetry plane: this fails if the map's Jacobian is (incorrectly)
+        # evaluated at the folded point ξ=map(x,t) instead of at the query point x, since both
+        # x_above and x_below fold to the same ξ and would otherwise get the same Jacobian
+        @test GPUArrays.@allowscalar measure(body, x_above, 0f0)[3][3] ≈ 1
+        @test GPUArrays.@allowscalar measure(body, x_below, 0f0)[3][3] ≈ -1
+    end
+end
+
 @testset "measure_sdf!" begin
     L = 16; R = 0.707f0L; size = (2L, 2L, 2L)
     fastd²=9f0; cutoff = sqrt(fastd²)
