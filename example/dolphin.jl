@@ -1,7 +1,7 @@
 using WaterLily,StaticArrays,BiotSavartBCs,WaterLilyMeshBodies
 function dolphin(;scale=1f0,Re=1e6,U=1,mem=Array)
     L = round(Int,64*scale); x₀ = SA[L÷4,4+L÷2,2L÷5]
-    body = MeshBody("example\\LowPolyDolphin.stl";scale,map=(x,t)->x-x₀,mem)
+    body = MeshBody("example\\LowPolyDolphin.stl";scale,map=(x,t)->x-x₀,boundary=true,mem)
     BiotSimulation((L÷2,3L÷2,3L÷4),(0,U,0),L;body,T=Float32,ν=U*L/Re,mem)
 end
 

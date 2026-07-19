@@ -1,41 +1,50 @@
-# BVH traversal and bounding volume functions
-
 using StaticArrays
 import ImplicitBVH
 import ImplicitBVH: BoundingVolume, BBox, BSphere, memory_index, unsafe_isvirtual
 
-@fastmath @inline inside(x::SVector, b::BoundingVolume) = inside(x, b.volume)
-@fastmath @inline inside(x::SVector, b::BBox) = all(b.lo.-4 .≤ x) && all(x .≤ b.up.+4)
-@fastmath @inline inside(x::SVector, b::BSphere) = √sum(abs2,x .- b.x) - b.r ≤ 4
-
-# compute the square distance to primitive
-dist(x, b::BSphere) = max(√sum(abs2,x .- b.x) - b.r, 0)^2
-function dist(x, b::BBox)
-    c = (b.up .+ b.lo) ./ 2
-    r = (b.up .- b.lo) ./ 2
-    sum(abs2, max.(abs.(x .- c) .- r, 0))
+# square distance to primitive
+@fastmath @inline dist(x, b::BSphere) = max(√sum(abs2,x .- b.x) - b.r, 0)^2
+@fastmath @inline function dist(x, b::BBox)
+    s = zero(eltype(x))
+    @inbounds for i in eachindex(b.up,b.lo)
+        d = abs(x[i] - 0.5f0*(b.up[i] + b.lo[i])) - 0.5f0*(b.up[i] - b.lo[i])
+        d>0 && (s+=d^2)
+    end; s
 end
-dist(x, b::BoundingVolume) = dist(x, b.volume)
+@inline dist(x, b::BoundingVolume) = dist(x, b.volume)
 
 # traverse the BVH
+struct ClosestPoint{D,T}
+    index::Int32
+    d²::T
+    n::SVector{D,T}
+    p::SVector{D,T}
+end
+
 @inline function closest(x::SVector{D,T},bvh::ImplicitBVH.BVH,mesh;init_d²=floatmax(T),verbose=false) where {D,T}
     ncheck=lcheck=tcheck=Int32(0) # initialize counts
-    best = (index=Int32(0),d²=init_d²,n=nothing,p=nothing) # initialize best element
+    best = ClosestPoint(Int32(0), T(init_d²), x, x) # initialize best element
     # Depth-First-Search
     tree = bvh.tree; length_nodes = length(bvh.nodes)
     i=Int32(1); while true
         @inbounds j = memory_index(tree,i)
         if j ≤ length_nodes # we are on a node
             verbose && (ncheck += 1)
-            dist(x, bvh.nodes[j]) < best.d² && (i = 2i; continue) # go deeper if closer than current best
+            dist(x, @inbounds bvh.nodes[j]) < best.d² && (i = 2i; continue) # go deeper if closer than current best
         else # we reached a leaf
             verbose && (lcheck += 1)
-            if dist(x, bvh.leaves[j-length_nodes]) ≤ best.d²
+            if dist(x, @inbounds bvh.leaves[j-length_nodes]) ≤ best.d²
                 verbose && (tcheck += 1)
                 @inbounds j = bvh.leaves[j-length_nodes].index # correct index in mesh
-                n,p = normal(mesh[j]),locate(x,mesh[j]) # expensive...
+                tri = @inbounds mesh[j]
+                p = locate(x,tri)
                 d² = sum(abs2,x-p)
-                ( d²<best.d² || (d²≈best.d² && abs((x-p)'n)>abs((x-best.p)'best.n)) ) && (best = (;index=Int32(j),d²,n,p))  # Replace current best
+                if d² < best.d²
+                    best = ClosestPoint(Int32(j), d², T.(normal(tri)), p)
+                elseif d² ≈ best.d²
+                    n = T.(normal(tri))
+                    (best.index == 0 || abs((x-p)'n) > abs((x-best.p)'best.n)) && (best = ClosestPoint(Int32(j), d², n, p))
+                end
             end
         end
         i = i>>trailing_ones(i)+1 # go to sibling, or uncle etc.
