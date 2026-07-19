@@ -1,9 +1,8 @@
 # Signed distance field and measure functions
 
 using StaticArrays
-using ForwardDiff
 using WaterLily
-import WaterLily: @loop, δ, loc
+import WaterLily: @loop, δ, loc, derivative, jacobian
 
 # measure d,n,V
 function WaterLily.measure(body::MeshBody{T},x::AbstractVector{T},t;fastd²=Inf) where T
@@ -15,9 +14,9 @@ function WaterLily.measure(body::MeshBody{T},x::AbstractVector{T},t;fastd²=Inf)
     d^2>fastd² && return (d,zero(x),zero(x)) # skip n,V
     # velocities
     v = get_velocity(p, body.mesh[index], body.velocity[index])
-    dξdt = ForwardDiff.derivative(t->body.map(x,t), t)
+    dξdt = derivative(t->body.map(x,t), t)
     # x-form back with Jacobian
-    dξdx = ForwardDiff.jacobian(x->body.map(x,t), x)
+    dξdx = jacobian(x->body.map(x,t), x)
     return (d,hat(dξdx'n),dξdx\(v-dξdt))
 end
 

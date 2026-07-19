@@ -23,7 +23,7 @@ end
 
 @inline function closest(x::SVector{D,T},bvh::ImplicitBVH.BVH,mesh;init_d²=floatmax(T),verbose=false) where {D,T}
     ncheck=lcheck=tcheck=Int32(0) # initialize counts
-    best = ClosestPoint(Int32(0), init_d², x, x) # initialize best element
+    best = ClosestPoint(Int32(0), T(init_d²), x, x) # initialize best element
     # Depth-First-Search
     tree = bvh.tree; length_nodes = length(bvh.nodes)
     i=Int32(1); while true
@@ -40,9 +40,9 @@ end
                 p = locate(x,tri)
                 d² = sum(abs2,x-p)
                 if d² < best.d²
-                    best = ClosestPoint(Int32(j), d², normal(tri), p)
+                    best = ClosestPoint(Int32(j), d², T.(normal(tri)), p)
                 elseif d² ≈ best.d²
-                    n = normal(tri)
+                    n = T.(normal(tri))
                     (best.index == 0 || abs((x-p)'n) > abs((x-best.p)'best.n)) && (best = ClosestPoint(Int32(j), d², n, p))
                 end
             end
