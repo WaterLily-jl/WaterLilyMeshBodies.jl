@@ -16,9 +16,16 @@ StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 WaterLily = "ed894a53-35f9-47f1-b17f-85db9237eebd"
 WriteVTK = "64499a7a-5c06-52f2-abe2-ccb03c286192"
 
+[weakdeps]
+FerriteShells = "39bd9e63-70f9-4eb3-975d-f599ce62130a"
+
+[extensions]
+FerriteShellsExt = "FerriteShells"
+
 [compat]
 Adapt = "4.3.0"
 ConstructionBase = "1.6.0"
+FerriteShells = "0.1.0"
 FileIO = "1.18.0"
 GeometryBasics = "0.5.10"
 ImplicitBVH = "0.7.0"

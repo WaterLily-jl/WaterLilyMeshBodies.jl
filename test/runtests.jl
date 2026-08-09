@@ -18,6 +18,17 @@ catch
     @info "Running tests on CPU only"
 end
 
+# Conditionally use FerriteShells if available (unregistered, local-only dependency
+# triggering the FerriteShellsExt package extension)
+ferriteshells_available = false
+try
+    import FerriteShells # not `using`: its exports (eg. `update!`) clash with WaterLily's
+    global ferriteshells_available = true
+    @info "Running Ferrite mesh conversion tests"
+catch
+    @info "FerriteShells not available; skipping Ferrite mesh conversion tests"
+end
+
 T = Float32
 mem = Array
 tri1 = SA{T}[0 1 0; 0 0 1; 0 0 0]
@@ -304,6 +315,42 @@ end
         sim_step!(sim, 0.1, remeasure=false)
         @test maximum(sim.pois.n) < 10
         @test 1 > sim.flow.Δt[end] > 0
+    end
+end
+
+@testset "Ferrite mesh conversion" begin
+    if ferriteshells_available
+        Ferrite = FerriteShells.Ferrite
+        corners = [Ferrite.Vec{2}((0.0,0.0)), Ferrite.Vec{2}((1.0,0.0)), Ferrite.Vec{2}((1.0,1.0)), Ferrite.Vec{2}((0.0,1.0))]
+        dims = (2,2)
+
+        # simple flat plate for each Ferrite cell type generate_grid supports directly,
+        # each paired with the number of sub-faces/triangles a single cell decomposes into
+        for (celltype, subfaces_per_cell, tris_per_face) in (
+            (Ferrite.Quadrilateral,        1, 2), # Q4
+            (Ferrite.QuadraticQuadrilateral, 4, 2), # Q9
+            (Ferrite.Triangle,              1, 1), # S3
+            (Ferrite.QuadraticTriangle,     4, 1), # S6
+        )
+            for mem in arrays
+                grid = FerriteShells.shell_grid(Ferrite.generate_grid(celltype, dims, corners))
+                body = MeshBody(grid; half_thk=0.1f0, mem)
+                @test length(body.mesh) == length(grid.cells) * subfaces_per_cell * tris_per_face
+            end
+        end
+
+        # Q8 (serendipity): no generate_grid method, build a single-cell plate by hand
+        node(x,y) = Ferrite.Node(Ferrite.Vec{3}((x,y,0.0)))
+        nodes = [node(0,0), node(1,0), node(1,1), node(0,1),
+                 node(0.5,0), node(1,0.5), node(0.5,1), node(0,0.5)]
+        cells = [Ferrite.SerendipityQuadraticQuadrilateral((1,2,3,4,5,6,7,8))]
+        for mem in arrays
+            grid = Ferrite.Grid(cells, nodes)
+            body = MeshBody(grid; half_thk=0.1f0, mem)
+            @test length(body.mesh) == 2 # 1 flat quad (no center node) -> 2 triangles
+        end
+    else
+        @test_skip "FerriteShells unavailable; skipping Ferrite mesh conversion tests"
     end
 end
 
