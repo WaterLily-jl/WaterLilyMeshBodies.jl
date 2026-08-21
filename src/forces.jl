@@ -2,12 +2,20 @@
     SurfaceForces
 
 Hold the pressure (`pressure`) and viscous (`viscous`) surface forces on the `MeshBody`.
+
+Unlike `measure`, which maps the query point into the mesh frame, the forces interpolate the
+flow at the mesh coordinates themselves and cannot apply `body.map`. The mesh must therefore
+be placed inside the flow domain, either where it is generated or by translating it with
+`update!(body,new_mesh)`; a body positioned by a non-identity `map` samples the wrong place
+and gives a wrong force.
 """
 struct SurfaceForces{T,A}
     pressure :: A
     viscous :: A
     function SurfaceForces(body::MeshBody)
-        T = typeof(body.scale)
+        @warn "the surface forces sample the flow at the mesh coordinates and ignore `body.map`, \
+               the mesh must be placed inside the flow domain" maxlog=1
+        T = basetype(body.mesh)
         mem = typeof(body.mesh).name.wrapper
         A = zeros(T,length(body.mesh),3) |> mem
         new{T,typeof(A)}(A,copy(A))
@@ -28,7 +36,7 @@ function WaterLily.viscous_force(a::SurfaceForces,sim::AbstractSimulation;kwargs
     surface_shear!(a,sim;kwargs...); sum(To,a.viscous,dims=1)[:] |> Array
 end
 function surface_shear!(a::SurfaceForces,sim::AbstractSimulation;δ,boundary=Val{sim.body.boundary}())
-    @WaterLily.loop a.viscous[I,:] .= get_v(sim.body.mesh[I],sim.body.velocity[I],sim.flow.u,δ,boundary) over I in CartesianIndices(1:size(a.viscous,1))
+    @WaterLily.loop a.viscous[I,:] .= get_v(sim.body.mesh[I],sim.body.velocity[I],sim.flow.u,sim.flow.ν,δ,boundary) over I in CartesianIndices(1:size(a.viscous,1))
 end
 
 import WaterLily: interp
@@ -42,21 +50,25 @@ end
 end
 
 @fastmath @inline proj(a,n) = a .- sum(a.*n)*n # tangent component
-@inline function get_v(tri::SMatrix{3,3,T},vel,u::AbstractArray{T,4},δ,::Val{true})  where T
+# velocity gradient at the wall from a 2nd-order one-sided difference, using the no-slip value
+# `vₑ` and the flow at `δ` and `2δ` along the outward direction
+@fastmath @inline shear(vₑ,v₁,v₂,δ) = (4v₁ - v₂ - 3vₑ)/2δ
+@fastmath @inline area(ds) = √(ds'*ds)
+@inline function get_v(tri::SMatrix{3,3,T},vel,u::AbstractArray{T,4},ν,δ,::Val{true})  where T
     c=center(tri); ds=dS(tri); n=hat(ds)
     vₑ = get_velocity(c,tri,vel)
     v₁ = interp(c + δ*n, u)
     v₂ = interp(c + 2δ*n, u)
-    return proj(ds.*(vₑ + v₂ - v₁)/2δ,n) # only outside, projects once
+    return ν*area(ds)*proj(shear(vₑ,v₁,v₂,δ),n) # only outside, projects once
 end
-@inline function get_v(tri::SMatrix{3,3,T},vel,u::AbstractArray{T,4},δ,::Val{false})  where T
+@inline function get_v(tri::SMatrix{3,3,T},vel,u::AbstractArray{T,4},ν,δ,::Val{false})  where T
     c=center(tri); ds=dS(tri); n=hat(ds)
     vₑ = get_velocity(c,tri,vel)
-    τ = zeros(SVector{3,T})
-    for j ∈ [-1,1]
+    τ = zero(SVector{3,T})
+    for j ∈ (-1,1) # the outward direction of each side is j*n
         v₁ = interp(c + j*δ*n, u)
         v₂ = interp(c + j*2δ*n, u)
-        τ = τ + ds.*(vₑ + v₂ - v₁)/2δ
+        τ = τ + shear(vₑ,v₁,v₂,δ)
     end
-    return proj(τ,n) # both sides, projects once
+    return ν*area(ds)*proj(τ,n) # both sides, projects once
 end
