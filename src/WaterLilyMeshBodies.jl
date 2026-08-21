@@ -70,6 +70,15 @@ function MeshBody(mesh::Mesh{3,T,P}; scale::T=1.f0, mem=Array, primitive=Implici
     MeshBody(mesh, zero(mesh), bvh; scale=T(scale), kwargs...)
 end
 
+# implemented by FerriteExt, declared here so they are reachable as
+# `WaterLilyMeshBodies.wetfacets(grid)` when Ferrite is loaded
+function wetfacets end
+function facetnodes end
+function wetfaces end
+function wetentities end
+function facet_weights end
+function facet_loads end
+
 include("geometry.jl")
 include("bvh.jl")
 include("measure.jl")
