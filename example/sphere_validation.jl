@@ -9,10 +9,32 @@
 #   SF    the mesh integral, `SurfaceForces`, using whatever stencil `src/forces.jl` holds
 #   SFold the superseded stencil, anchored on the surface at the body velocity vₑ
 #
-# The open question this run is meant to settle: SF and WL are both first-order in h and were
-# still climbing at D=32, extrapolating to different limits (≈0.42 vs ≈0.59 for Cd,v at Re=100).
-# D=64 puts the boundary layer at δ_BL ≈ D/√Re ≈ 6.4 cells, comfortably thicker than the 2-cell
-# stencil, so it should show which extrapolation was real.
+# Results, against the tabulated split of Le Clair, Hamielec & Pruppacher (J. Atmos. Sci. 27,
+# 308-315, 1970, Table 1). Both estimators are first order in h and neither is converged below
+# D≈64, so each column is a 3- to 5-point extrapolation in 1/D over D=32..64 in the 8Dx4Dx4D
+# domain, then corrected for blockage by the factor measured at D=32 between 8Dx4Dx4D and
+# 16Dx8Dx8D (v x0.96, p x0.93, near enough Re-independent):
+#
+#           C_DF (friction)                    C_D (total)
+#   Re   ref     SF            WL           ref     SF            WL
+#   100  0.590   0.566 (-4%)   0.399 (-32%) 1.096   1.076 (-2%)   0.913 (-17%)
+#   200  0.372   0.356 (-4%)   0.249 (-33%) 0.772   0.765 (-1%)   0.664 (-14%)
+#   400  0.232   0.233 (+0%)   0.156 (-33%) 0.611*  0.599 (-2%)   0.522 (-15%)
+#
+#   * Le Clair solve the steady axisymmetric equations, so their Re=400 total (0.552) is a
+#     solution that is physically unstable -- the wake loses axisymmetry by Re≈210 and sheds by
+#     Re≈270. This run does go unsteady there (Cd oscillates by ±0.03 about 0.54 at D=64), so
+#     the total is compared with Schiller-Naumann, 24/Re(1+0.15Re^0.687)=0.611, fitted to
+#     experiment. The friction still matches the steady reference: it is set on the front and
+#     shoulder, which stay steady, while the pressure follows the unsteady base.
+#
+# So the mesh integral is within ~4% on friction and ~2% on total across a 4x range in Re, while
+# WaterLily's grid integral is low by a near-constant 33%: -2ν S·nds samples the strain rate
+# inside the BDIM band, where the field is masked and its gradient is not the wall gradient.
+# On Stokes' first problem, where τw = μU/√(πνt) is exact, the same comparison gives 0.999 for
+# the mesh integral and 0.60 for the grid integral. The superseded vₑ-anchored stencil (SFold
+# below) reads ~33% high, which put the friction share of the drag at Re=20 above the 2/3
+# Stokes-limit ceiling that share can never exceed.
 #
 # Usage
 #   julia --project=. example/sphere_validation.jl --gpu --D=32,64 --Re=100 --tend=40
