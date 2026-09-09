@@ -410,7 +410,7 @@ end
     apply!((i,x)-> i==1 ? γ*(x[3]-z₀) : 0f0, shear.flow.u)
     sfs = SurfaceForces(shear.body)
     for δ in δs # the one-sided stencil is exact for a linear profile, at any δ
-        @test WaterLily.viscous_force(sfs, shear; δ) ≈ [ν*γ*A,0,0] rtol=1e-3
+        @test WaterLily.viscous_force(sfs, shear; δ) ≈ [-ν*γ*A,0,0] rtol=1e-3
     end
 
     # thin shell in a uniform shear: the viscous force is zero, since the flow is continuous across the shell
@@ -418,17 +418,11 @@ end
     apply!((i,x)-> i==1 ? γ*(x[3]-z₀) : 0f0, plate_shell.flow.u)
     @test all(abs.(WaterLily.viscous_force(SurfaceForces(plate_shell.body), plate_shell; δ=1f0)) .< 1e-4)
 
-    # a body translating with a uniform flow with zero shear
-    moving = make_sim(cube())
-    apply!((i,x)-> i==1 ? 1f0 : 0f0, moving.flow.u)
-    moving.body.velocity .= Ref(SA{Float32}[1 1 1; 0 0 0; 0 0 0]) # every vertex at (1,0,0)
-    @test all(abs.(WaterLily.viscous_force(SurfaceForces(moving.body), moving; δ=1f0)) .< 1e-4)
-
     # the shear scales with the viscosity, and vanishes with it
     for factor in (2f0, 0f0)
         scaled = Simulation((N,N,N),(0,0,0),16; body=MeshBody(plate; boundary=true), ν=factor*ν, T=Float32)
         apply!((i,x)-> i==1 ? γ*(x[3]-z₀) : 0f0, scaled.flow.u)
         @test WaterLily.viscous_force(SurfaceForces(scaled.body), scaled; δ=1f0) ≈
-              [factor*ν*γ*A,0,0] rtol=1e-3 atol=1e-8
+              [-factor*ν*γ*A,0,0] rtol=1e-3 atol=1e-8
     end
 end

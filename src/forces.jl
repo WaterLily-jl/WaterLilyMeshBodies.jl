@@ -50,25 +50,31 @@ end
 end
 
 @fastmath @inline proj(a,n) = a .- sum(a.*n)*n # tangent component
-# velocity gradient at the wall from a 2nd-order one-sided difference, using the no-slip value
-# `vₑ` and the flow at `δ` and `2δ` along the outward direction
-@fastmath @inline shear(vₑ,v₁,v₂,δ) = (4v₁ - v₂ - 3vₑ)/2δ
+# Velocity gradient at the wall from a 2nd-order one-sided difference anchored one `δ` off the
+# surface, sampling `δ`, `1.5δ` and `2δ`. The BDIM field within |d|≲1 of the mesh is masked and
+# carries a spurious slip, so a stencil anchored on the surface itself -- whether it uses the
+# body velocity or the field's own value there -- reads a wall gradient that converges to the
+# wrong constant. These three samples all lie outside the kernel support, and span only `δ` so
+# that they stay inside the near-wall region of a boundary layer a few cells thick. The body
+# velocity is not needed: a uniform surface velocity cancels out of the difference, and the
+# body's motion reaches these points through the flow field itself.
+@fastmath @inline shear(v₁,v₂,v₃,δ) = (-3v₁ + 4v₂ - v₃)/δ # spacing δ/2, derivative at `δ`
 @fastmath @inline area(ds) = √(ds'*ds)
 @inline function get_v(tri::SMatrix{3,3,T},vel,u::AbstractArray{T,4},ν,δ,::Val{true})  where T
     c=center(tri); ds=dS(tri); n=hat(ds)
-    vₑ = get_velocity(c,tri,vel)
     v₁ = interp(c + δ*n, u)
-    v₂ = interp(c + 2δ*n, u)
-    return ν*area(ds)*proj(shear(vₑ,v₁,v₂,δ),n) # only outside, projects once
+    v₂ = interp(c + 1.5f0δ*n, u)
+    v₃ = interp(c + 2δ*n, u)
+    return -ν*area(ds)*proj(shear(v₁,v₂,v₃,δ),n) # only outside, projects once
 end
 @inline function get_v(tri::SMatrix{3,3,T},vel,u::AbstractArray{T,4},ν,δ,::Val{false})  where T
     c=center(tri); ds=dS(tri); n=hat(ds)
-    vₑ = get_velocity(c,tri,vel)
     τ = zero(SVector{3,T})
     for j ∈ (-1,1) # the outward direction of each side is j*n
         v₁ = interp(c + j*δ*n, u)
-        v₂ = interp(c + j*2δ*n, u)
-        τ = τ + shear(vₑ,v₁,v₂,δ)
+        v₂ = interp(c + j*1.5f0δ*n, u)
+        v₃ = interp(c + j*2δ*n, u)
+        τ = τ + shear(v₁,v₂,v₃,δ)
     end
-    return ν*area(ds)*proj(τ,n) # both sides, projects once
+    return -ν*area(ds)*proj(τ,n) # both sides, projects once
 end
