@@ -87,7 +87,8 @@ function run(D, Re)
     # upstream margin (Lx-Ly)/2 diameters, sphere on the axis
     centre = SA{T}[(dom[1]-dom[2])/2*D, dom[2]/2*D, dom[3]/2*D]
     body = sphere_body(T(D), centre; mem)
-    sim  = Simulation(N, (U,0,0), T(D); body, ν=T(U*D/Re), T, mem)
+    sim  = Simulation(N, (U,zero(U),zero(U)), T(D); body, ν=T(U*D/Re), T, mem) # homogeneous tuple: a mixed
+    # Tuple{Float32,Int64,Int64} cannot be indexed inside WaterLily's applyV! kernel on the GPU
     sf   = SurfaceForces(sim.body)
     Fold = zeros(T, length(sim.body.mesh), 3) |> mem
 
