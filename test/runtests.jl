@@ -397,6 +397,18 @@ end
         @test all(m ≈ t.+δ for (m,t) in zip(moved.mesh,body.mesh))
         @test all(v ≈ hcat(δ,δ,δ)/dt for v in moved.velocity)
 
+        # prescribed nodal velocities gather through the same connectivity as the positions,
+        # so feeding the reference coordinates as the velocity reproduces the reference mesh
+        pv = update!(mk_body(), faces, X.+δ, X)
+        @test all(m ≈ t.+δ for (m,t) in zip(pv.mesh,body.mesh))
+        @test all(w ≈ t for (w,t) in zip(pv.velocity,body.mesh))
+
+        # ...and unlike the `dt` form the velocity is whatever was handed in, independent of
+        # how far the body moved or of any time step
+        V = Float32[0.1,-0.4,0.2] .* ones(Float32,1,size(X,2))
+        @test all(w ≈ hcat(V[:,1],V[:,1],V[:,1]) for w in update!(mk_body(),faces,X.+δ,V).velocity)
+        @test all(w ≈ hcat(V[:,1],V[:,1],V[:,1]) for w in update!(mk_body(),faces,X,V).velocity)
+
         # `scale` is baked into the mesh by the constructor and `update!` takes body-frame
         # coordinates, as it does for a new mesh, so the nodes must be scaled by the caller
         scaled = mk_body(2f0)
