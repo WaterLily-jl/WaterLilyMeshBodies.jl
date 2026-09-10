@@ -28,5 +28,20 @@ function update!(a::MeshBody{T},new_mesh::AbstractArray,dt=0) where T
     # update the BVH
     setproperties(a, bvh=BVH(ImplicitBVH.BBox{T}.(a.mesh), ImplicitBVH.BBox{T}))
 end
+"""
+    update!(body::MeshBody{T},new_mesh::AbstractArray,new_velocity::AbstractArray)
+
+Updates the mesh body position using `new_mesh` and sets the control point velocity to
+`new_velocity` directly, instead of differencing positions over the flow time step. Use
+this when the velocity is known analytically (see `interpolate!`), so that `vᵢ` is
+consistent with `xᵢ` in time and independent of `dt`.
+"""
+function update!(a::MeshBody{T},new_mesh::AbstractArray,new_velocity::AbstractArray) where T
+    Rs = CartesianIndices(a.mesh)
+    @loop a.velocity[I] = new_velocity[I] over I in Rs
+    @loop a.mesh[I] = new_mesh[I] over I in Rs
+    # update the BVH
+    setproperties(a, bvh=BVH(ImplicitBVH.BBox{T}.(a.mesh), ImplicitBVH.BBox{T}))
+end
 update!(body::AbstractBody,args...) = body
 update!(body::SetBody,args...) = SetBody(body.op,update!(body.a,args...),update!(body.b,args...))

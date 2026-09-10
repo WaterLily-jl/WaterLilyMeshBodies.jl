@@ -163,6 +163,13 @@ end
         # try inside SetBody
         body += AutoBody((x,t)->42.f0) # the answer!
         @test GPUArrays.@allowscalar all(measure(body, x1.+1, 0) .≈ (0,[0,0,1],[1,1,1]))
+
+        # try update with prescribed velocity
+        new_mesh2 = mem([tri1 .+ 2, R*tri1 .+ 3])
+        new_velocity = mem([fill(2f0,SMatrix{3,3}), fill(2f0,SMatrix{3,3})])
+        body = update!(body, new_mesh2, new_velocity)
+        @test GPUArrays.@allowscalar all(body.a.velocity[1] .≈ 2) && all(body.a.velocity[2] .≈ 2)
+        @test GPUArrays.@allowscalar all(measure(body, x1.+2, 0) .≈ (0,[0,0,1],[2,2,2]))
     end
 end
 
@@ -317,6 +324,10 @@ end
         # non-uniform spacing: at a knot still returns exact snapshot
         b_nu = interpolate!(mk_body(), MotionInterpolation(mem(motion_data), times_nu), T(0.3))
         @test GPUArrays.@allowscalar all(b_nu.mesh[1] .≈ motion_data[2, 1])
+
+        # check that velocity is analytical and independent of the flow time step, even for non-uniform spacing
+        b_u = interpolate!(mk_body(), MotionInterpolation(mem(motion_data), times_u), T(0.6))
+        @test GPUArrays.@allowscalar all(b_u.velocity[1] .≈ (motion_data[2, 1]-motion_data[1, 1])/(times_u[2]-times_u[1]))
     end
 end
 
