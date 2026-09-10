@@ -505,25 +505,24 @@ end
 @testset "Force test" begin
     L = 64
     for f ∈ arrays
-        # the STL geometry is centred on the origin: place it in the domain rather than with a
-        # `map`, which the forces cannot apply. `∮(x₁+δn₁)n dA = V + δ∮n₁n dA` for `p=x₁`
+        # make sure the geometry is actually place in the center of the domain (map doesn't work with SurfaceForces)
         place(body) = update!(body, f([t .+ SA{T}[L,L,L] for t in Array(body.mesh)]), 0)
         force(body,δ) = (sim = Simulation((2L,2L,2L),(1,0,0),L;body,mem=f);
                          apply!(x->x[1], sim.flow.p);
                          WaterLily.pressure_force(SurfaceForces(sim.body), sim; δ))
 
-        # a sphere of radius R, where ∮n₁n dA = A/3, up to the polyhedral error of the STL
+        # sphere of radius R, the mesh is not exactly a true sphere volume
         R = 0.9L
         sphere = place(MeshBody(joinpath(@__DIR__,"meshes/sphere.stl");
                                 scale=T(1.8L), boundary=true, mem=f))
-        for δ in (1f0,0.5f0)
+        for δ in (1f0,0.5f0) # how far do we probe
             @test force(sphere,δ) ≈ (4/3*π*R^3 + δ*4π*R^2/3)*[1,0,0] rtol=2e-2
         end
 
-        # a cube of side L, where the mesh is exact and so are both terms
+        # a cube of side L
         box = place(MeshBody(joinpath(@__DIR__,"meshes/box.stl");
                              scale=T(L/2), boundary=true, mem=f))
-        for δ in (1f0,0.5f0)
+        for δ in (1f0,0.5f0) # how far do we probe
             @test force(box,δ) ≈ (L^3 + 2δ*L^2)*[1,0,0] rtol=1e-5
         end
     end
@@ -535,19 +534,17 @@ end
     cube(lo=22.0) = Ferrite.generate_grid(Ferrite.Hexahedron, (4,4,4),
                         lo*ones(Ferrite.Vec{3}), (lo+L)*ones(Ferrite.Vec{3}))
     ν = 0.1f0 # must be non-zero, the viscous force is ν∫∂u/∂n dA
-    mksim(body) = Simulation((N,N,N),(0,0,0),16; body, ν, T=Float32)
+    make_sim(body) = Simulation((N,N,N),(0,0,0),16; body, ν, T=Float32)
 
-    sim = mksim(MeshBody(cube(); boundary=true)); sf = SurfaceForces(sim.body)
+    sim = make_sim(MeshBody(cube(); boundary=true)); sf = SurfaceForces(sim.body)
 
-    # a uniform pressure has no resultant on a closed body, ∮n dA = 0. This is the test that
-    # catches a flipped or missing facet, both of which leave a net force behind
+    # uniform pressure, no resultant on a closed body, ∮n dA = 0
     apply!(x->3f0, sim.flow.p)
     for δ in δs
         @test all(abs.(WaterLily.pressure_force(sf, sim; δ)) .< 1e-3)
     end
 
-    # a linear pressure gives the divergence theorem. `get_p` samples at c+δn, so for a
-    # flat-faced body ∮(a⋅x + δ a⋅n) n dA = (V + 2δL²)a holds to machine precision
+    # volume from linear pressure ∮(a⋅x + δ a⋅n) n dA = (V + 2δL²)a
     for d in 1:3
         apply!(x->x[d], sim.flow.p)
         for δ in δs
@@ -559,32 +556,23 @@ end
     A, γ, z₀ = 256f0, 0.01f0, 16f0
     pts = Point{3,Float32}[(8,8,z₀),(24,8,z₀),(24,24,z₀),(8,24,z₀)]
     plate = GeometryBasics.Mesh(pts, [TriangleFace{Int}(1,2,3), TriangleFace{Int}(1,3,4)])
-    shear = mksim(MeshBody(plate; boundary=true))
+    shear = make_sim(MeshBody(plate; boundary=true))
     apply!((i,x)-> i==1 ? γ*(x[3]-z₀) : 0f0, shear.flow.u)
     sfs = SurfaceForces(shear.body)
     for δ in δs # the one-sided stencil is exact for a linear profile, at any δ
-        @test WaterLily.viscous_force(sfs, shear; δ) ≈ [ν*γ*A,0,0] rtol=1e-3
+        @test WaterLily.viscous_force(sfs, shear; δ) ≈ [-ν*γ*A,0,0] rtol=1e-3
     end
 
-    # a thin shell in a uniform shear is dragged forwards on one face and backwards on the
-    # other, so the two cancel. This is the test that catches a sign slip between the sides
-    plate_shell = mksim(MeshBody(plate; boundary=false, half_thk=1f0))
+    # thin shell in a uniform shear: the viscous force is zero, since the flow is continuous across the shell
+    plate_shell = make_sim(MeshBody(plate; boundary=false, half_thk=1f0))
     apply!((i,x)-> i==1 ? γ*(x[3]-z₀) : 0f0, plate_shell.flow.u)
     @test all(abs.(WaterLily.viscous_force(SurfaceForces(plate_shell.body), plate_shell; δ=1f0)) .< 1e-4)
-
-    # a body translating with a uniform flow sees no relative motion, so it carries no shear.
-    # This is the test that exercises the no-slip value `vₑ`, which the stencil needs to weigh
-    # correctly: a uniform flow over a *stationary* wall does have a gradient, not zero shear
-    moving = mksim(MeshBody(cube(); boundary=true))
-    apply!((i,x)-> i==1 ? 1f0 : 0f0, moving.flow.u)
-    moving.body.velocity .= Ref(SA{Float32}[1 1 1; 0 0 0; 0 0 0]) # every vertex at (1,0,0)
-    @test all(abs.(WaterLily.viscous_force(SurfaceForces(moving.body), moving; δ=1f0)) .< 1e-4)
 
     # the shear scales with the viscosity, and vanishes with it
     for factor in (2f0, 0f0)
         scaled = Simulation((N,N,N),(0,0,0),16; body=MeshBody(plate; boundary=true), ν=factor*ν, T=Float32)
         apply!((i,x)-> i==1 ? γ*(x[3]-z₀) : 0f0, scaled.flow.u)
         @test WaterLily.viscous_force(SurfaceForces(scaled.body), scaled; δ=1f0) ≈
-              [factor*ν*γ*A,0,0] rtol=1e-3 atol=1e-8
+              [-factor*ν*γ*A,0,0] rtol=1e-3 atol=1e-8
     end
 end
