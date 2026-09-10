@@ -101,8 +101,7 @@ outer facets of a volume grid are (see [`wetfacets`](@ref), whose `top` is forwa
 are the entities the surface loads are integrated over, see [`facet_loads`](@ref).
 """
 wetentities(grid::Grid{3,P}) where P<:SurfaceCell = [Ferrite.get_node_ids(c) for c in grid.cells]
-wetentities(grid::Grid{3,P}, args...) where P<:VolumeCell =
-    [facetnodes(grid, facet) for facet in wetfacets(grid, args...)]
+wetentities(grid::Grid{3,P}, args...) where P<:VolumeCell = [facetnodes(grid, facet) for facet in wetfacets(grid, args...)]
 
 """
     wetfaces(grid::Grid, args...)

@@ -27,7 +27,7 @@ end
 using GLMakie,Meshing#,CUDA
 # CUDA.allowscalar(false)
 sim = make_sim(32;U=1,Re=1500,T=Float32,mem=Array,make_solid=make_cube)
-viz!(sim,body2mesh=true,remeasure=false,
-     azimuth=-0.5,fig_size=(1200,800),
-     duration=4,step=0.01,video="Ferrite_WaterLily.mp4",
-     colormap=:ocean,colorrange=(0.15,0.5),algorithm=:mip,body_color=:white)
+viz!(sim,duration=4,step=0.01,remeasure=false,
+     fig_size=(1200,800),video="Ferrite_WaterLily.mp4",
+     colormap=:linear_blue_95_50_c20_n256,colorrange=(0.15,0.5),algorithm=:mip,body_color=:white,
+     body2mesh=true,hidedecorations=true,azimuth=-3π/4,elevation=π/6)
