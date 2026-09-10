@@ -29,6 +29,25 @@ function update!(a::MeshBody{T},new_mesh::AbstractArray,dt=0) where T
     setproperties(a, bvh=BVH(ImplicitBVH.BBox{T}.(a.mesh), ImplicitBVH.BBox{T}))
 end
 """
+    update!(body::MeshBody{T},new_mesh::AbstractArray,new_velocity::AbstractArray)
+
+Updates the mesh body position using `new_mesh` and sets the control point velocity to
+`new_velocity` directly, instead of differencing positions over the flow time step. Use
+this when the velocity is known analytically (see `interpolate!`), so that `vᵢ` is
+consistent with `xᵢ` in time and independent of `dt`.
+
+Dispatch note: a three-argument call lands here rather than on `update!(body,faces,x,dt)`
+only because `new_velocity` is an array of triangles, as `body.velocity` is, while the `x`
+there is a `3×Nnodes` matrix. The two cannot be mistaken for one another.
+"""
+function update!(a::MeshBody{T},new_mesh::AbstractArray,new_velocity::AbstractArray) where T
+    Rs = CartesianIndices(a.mesh)
+    @loop a.velocity[I] = new_velocity[I] over I in Rs
+    @loop a.mesh[I] = new_mesh[I] over I in Rs
+    # update the BVH
+    setproperties(a, bvh=BVH(ImplicitBVH.BBox{T}.(a.mesh), ImplicitBVH.BBox{T}))
+end
+"""
     update!(body::MeshBody{T},faces::AbstractArray,x::AbstractArray,dt=0)
 
 Updates the mesh body position from the nodal positions `x` (a `3×Nnodes` array) gathered
