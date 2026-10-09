@@ -39,7 +39,8 @@ WaterLilyNarrowBand = {url = "https://github.com/weymouth/WaterLilyNarrowBand.jl
 CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 GPUArrays = "0c68f7d7-f131-5f86-a1c3-88cf8149b2d7"
+Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["Test", "GPUArrays", "CUDA", "ForwardDiff"]
+test = ["Test", "GPUArrays", "CUDA", "ForwardDiff", "Logging"]

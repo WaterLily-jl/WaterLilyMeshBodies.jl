@@ -323,3 +323,4 @@ end
         @test ForwardDiff.derivative(t -> measure_sum(t, f), Tθ(0.3)) ≈ cpu_d rtol=1e-3
     end
 end
+include("narrowband.jl")
