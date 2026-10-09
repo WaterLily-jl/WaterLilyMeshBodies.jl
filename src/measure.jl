@@ -34,43 +34,18 @@ end
     measure_sdf!(a::AbstractArray, body::MeshBody, t=0; fastd²=1)
 
 Fill `a` with the signed distance from `body` at time `t`. The distance is computed exactly within `d² ≤ fastd²`,
-and set to `√fastd²` outside this region. The method depends on `body.boundary`:
- - `body.boundary == true`: The sign of the distance is determined by a global flood-fill. This requires `body.mesh` to be a closed manifold.
+and set to `±√fastd²` outside this region. The method depends on `body.boundary`:
+ - `body.boundary == true`: The sign of the distance is determined by a flood-fill. This requires `body.mesh` to be a closed manifold.
  - `body.boundary == false`: The mesh is treated as a thin shell with half-thickness `body.half_thk`.
 """
 function WaterLily.measure_sdf!(d::AbstractArray{T}, body::MeshBody{T}, t=zero(T); fastd²=1) where T
-    # SDF within d²≤fastd²
+    body.boundary && return measure_sdf!(d, NarrowBand(body, size(d).-2; mem=Base.typename(typeof(d)).wrapper), t; fastd²)
     @inside d[I] = sdf(body, loc(0,I,T), t; fastd²)
-
-    # Determine points inside the closed body.boundary using a flood fill
-    if body.boundary
-        if body.cache === nothing
-            near, reached, farinside = similar(d, Bool), similar(d, Bool), similar(d, Bool)
-            outside!(reached, body.bvh, x->body.map(x,t))
-        else
-            near, reached, farinside = body.cache
-        end
-        flood_fill!(near, reached, farinside, d)
-        @inside d[I] = farinside[I] ? -abs(d[I]) : d[I]
-    end
 end
 
-# Flood-fill to classify points as inside or outside a closed boundary
-outside!(reached,bvh,map) = @loop reached[I] = dist(map(loc(0,I)), bvh.nodes[1])>1 over I ∈ CartesianIndices(reached)
-function flood_fill!(near, reached, scratch, sdf; cutoff=1f0)
-    @. near = abs(sdf) < cutoff
-    copyto!(scratch,reached)
-    for _ in 1:min(size(near)...)÷2
-        @inside scratch[I] = flood_update(I, reached, near)
-        @inside reached[I] = flood_update(I, scratch, near)
-        reached == scratch && break # converged
-    end
-    @. scratch = !near && !reached # far-inside
-end
-@inline function flood_update(I::CartesianIndex{d}, r, blocked) where d
-    blocked[I] && return false
-    f = r[I]
-    for i in 1:d
-        f = f || r[I+δ(i,I)] || r[I-δ(i,I)]
-    end; return f
+WaterLilyNarrowBand.hasinterior(body::MeshBody) = body.boundary
+function WaterLilyNarrowBand.outside!(reached, body::MeshBody, t)
+    body.boundary || return
+    bvh, map = body.bvh, x->body.map(x,t)
+    @loop reached[I] = reached[I] && dist(map(loc(0,I)), bvh.nodes[1])>1 over I ∈ CartesianIndices(reached)
 end

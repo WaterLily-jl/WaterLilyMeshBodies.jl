@@ -127,22 +127,6 @@ end
     end
 end
 
-@testset "Flood Classifier" begin
-    # Closed near-band ring encloses a 6x6 interior region (indices 6:11, 6:11)
-    d = fill(T(5), 16, 16)
-    d[5, 5:12] .= 0
-    d[12, 5:12] .= 0
-    d[5:12, 5] .= 0
-    d[5:12, 12] .= 0
-    near = similar(d, Bool)
-    reached = similar(d, Bool); fill!(reached, true); reached[inside(d)] .= false
-    farinside = similar(d, Bool)
-    WaterLilyMeshBodies.flood_fill!(near, reached, farinside, d)
-    @test count(@view(farinside[6:11, 6:11])) == 36
-    @test all(@view(farinside[5, 5:12]) .== false)
-    @test all(@view(farinside[12, 5:12]) .== false)
-end
-
 @testset "Updates" begin
     x1 = SA{T}[0,0,0]
 
@@ -200,7 +184,7 @@ end
             scale=2R, map=(x,t)->x .- L, boundary=true, mem)
         σm = zeros(T,size .+ 2) |>  mem
         measure_sdf!(σm, mesh_body, 0f0; fastd²)
-        @test mesh_body.cache === nothing
+        @test count(<(-1),σm) ≈ 4π/3*R^3-4π*R^2 rtol = 0.05 # should be close to the number of points in the interior
 
         auto_body = AutoBody((x,t) -> √sum(abs2, x .- L) - R)
         σa = zeros(T,size .+ 2) |>  mem
@@ -216,30 +200,34 @@ end
         mismatches = findall(signbit.(σm) .!= signbit.(σa))
         @test GPUArrays.@allowscalar all(0>σa[I]>-v && 0<σm[I]<v for I in mismatches)
 
-        # test caching
-        cache_body = MeshBody(joinpath(@__DIR__, "meshes", "sphere.stl");
-            scale=2R, map=(x,t)->x .- L, boundary=true, mem, size)
-        σc = zeros(T,size .+ 2) |>  mem
-        @test !isnothing(cache_body.cache)
+        # NarrowBand warm-starts the flood-fill: same result after an integer shift in 1/2 cell steps
+        band_body = NarrowBand(MeshBody(joinpath(@__DIR__, "meshes", "sphere.stl");
+            scale=2R, map=(x,t)->x .- L, boundary=true, mem), size; mem)
+        σn = zeros(T,size .+ 2) |>  mem
+        measure_sdf!(σn, band_body, 0f0; fastd²)
+        @test σn ≈ σm
 
-        measure_sdf!(σc, cache_body, 0f0; fastd²)
-        @test σc ≈ σm
-        num_near,num_reached,num_farinside = count.(cache_body.cache)
-        @test num_farinside ≈ 4π/3*R^3-4π*R^2 rtol = 0.05 # should be close to the number of points in the interior
-
-        # shift the mesh by 1/2 cell and check that cache persists
         shift(tri) = tri .+ 0.5
-        cache_body = update!(cache_body, shift.(cache_body.mesh), 1f0)
         abs_vel(vel) = maximum(√sum(abs2,vertex) for vertex in eachcol(vel))
-        @test maximum(abs_vel.(cache_body.velocity)) < 1 # can't shift by more than 1 cell in one time step
-        @test all((num_near,num_reached,num_farinside) .== count.(cache_body.cache))
+        for _ in 1:2
+            band_body = update!(band_body, shift.(band_body.body.mesh), 1f0)
+            @test maximum(abs_vel.(band_body.body.velocity)) < 1 # can't shift by more than 1 cell in one time step
+            measure_sdf!(σn, band_body, 1f0; fastd²)
+        end
+        @test σn[3:2L-1,3:2L-1,3:2L-1] ≈ σm[2:2L-2,2:2L-2,2:2L-2]
+    end
+end
 
-        # warm-start should give same farinside count and same result after an integer shift
-        measure_sdf!(σc, cache_body, 1f0; fastd²)
-        cache_body = update!(cache_body, shift.(cache_body.mesh), 1f0)
-        measure_sdf!(σc, cache_body, 1f0; fastd²)
-        @test num_farinside == count(cache_body.cache[3])
-        @test σc[3:2L-1,3:2L-1,3:2L-1] ≈ σm[2:2L-2,2:2L-2,2:2L-2]
+@testset "flipped triangle" begin
+    # a wrong local sign (here, from one flipped triangle) must not leak the flood-fill into the interior
+    L = 16; size = (2L, 2L, 2L); fastd²=9f0
+    for mem in arrays
+        sphere() = MeshBody(joinpath(@__DIR__, "meshes", "sphere.stl"); scale=T(L), map=(x,t)->x .- L, boundary=true, mem)
+        mesh = Array(sphere().mesh); mesh[1] = mesh[1][:,SA[1,3,2]]
+        flipped = update!(sphere(), mem(mesh))
+        σc,σf = zeros(T,size .+ 2) |> mem, zeros(T,size .+ 2) |> mem
+        measure_sdf!(σc, sphere(), 0f0; fastd²); measure_sdf!(σf, flipped, 0f0; fastd²)
+        @test count(≤(-1),σf) == count(≤(-1),σc) > 0
     end
 end
 
@@ -335,3 +323,4 @@ end
         @test ForwardDiff.derivative(t -> measure_sum(t, f), Tθ(0.3)) ≈ cpu_d rtol=1e-3
     end
 end
+include("narrowband.jl")
