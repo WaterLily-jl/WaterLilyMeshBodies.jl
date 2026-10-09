@@ -28,3 +28,4 @@ function save!(w,a::MeshBody,t=w.count[1])
 end
 save!(w,a::AbstractBody,t) = nothing
 save!(w,a::SetBody,t) = (save!(w,a.a,t); save!(w,a.b,t))
+save!(w,a::NarrowBand,t) = save!(w,a.body,t)

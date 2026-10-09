@@ -3,6 +3,7 @@
 using StaticArrays
 using WaterLily
 import WaterLily: @loop, δ, loc, derivative, jacobian
+import WaterLilyNarrowBand: flood_fill!
 
 # measure d,n,V
 function WaterLily.measure(body::MeshBody{T},x::AbstractVector{T},t;fastd²=Inf) where T
@@ -36,6 +37,7 @@ end
 Fill `a` with the signed distance from `body` at time `t`. The distance is computed exactly within `d² ≤ fastd²`,
 and set to `√fastd²` outside this region. The method depends on `body.boundary`:
  - `body.boundary == true`: The sign of the distance is determined by a global flood-fill. This requires `body.mesh` to be a closed manifold.
+   Wrap the body in a `NarrowBand` to warm-start the flood-fill when remeasuring.
  - `body.boundary == false`: The mesh is treated as a thin shell with half-thickness `body.half_thk`.
 """
 function WaterLily.measure_sdf!(d::AbstractArray{T}, body::MeshBody{T}, t=zero(T); fastd²=1) where T
@@ -44,33 +46,12 @@ function WaterLily.measure_sdf!(d::AbstractArray{T}, body::MeshBody{T}, t=zero(T
 
     # Determine points inside the closed body.boundary using a flood fill
     if body.boundary
-        if body.cache === nothing
-            near, reached, farinside = similar(d, Bool), similar(d, Bool), similar(d, Bool)
-            outside!(reached, body.bvh, x->body.map(x,t))
-        else
-            near, reached, farinside = body.cache
-        end
+        near, reached, farinside = similar(d, Bool), similar(d, Bool), similar(d, Bool)
+        outside!(reached, body.bvh, x->body.map(x,t))
         flood_fill!(near, reached, farinside, d)
         @inside d[I] = farinside[I] ? -abs(d[I]) : d[I]
     end
 end
 
-# Flood-fill to classify points as inside or outside a closed boundary
+# Seed the flood-fill with the points outside the BVH
 outside!(reached,bvh,map) = @loop reached[I] = dist(map(loc(0,I)), bvh.nodes[1])>1 over I ∈ CartesianIndices(reached)
-function flood_fill!(near, reached, scratch, sdf; cutoff=1f0)
-    @. near = abs(sdf) < cutoff
-    copyto!(scratch,reached)
-    for _ in 1:min(size(near)...)÷2
-        @inside scratch[I] = flood_update(I, reached, near)
-        @inside reached[I] = flood_update(I, scratch, near)
-        reached == scratch && break # converged
-    end
-    @. scratch = !near && !reached # far-inside
-end
-@inline function flood_update(I::CartesianIndex{d}, r, blocked) where d
-    blocked[I] && return false
-    f = r[I]
-    for i in 1:d
-        f = f || r[I+δ(i,I)] || r[I-δ(i,I)]
-    end; return f
-end
