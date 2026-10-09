@@ -39,8 +39,7 @@ Constructor for a MeshBody:
   - `primitive::Union{BBox, BSphere}=BBox`: bounding volume primitive to use in the ImplicitBVH.
 
 If `boundary=true`, a flood-fill is used to determine the sign of the distance. If `boundary=false`, the sign is determined
-by treating the mesh as a thin shell. Wrap a moving `MeshBody` in a `NarrowBand(body, dims)` to only measure it near its
-surface, with a warm-started flood-fill.
+by treating the mesh as a thin shell.
 """
 MeshBody(file_name::String; kwargs...) = MeshBody(load(file_name); kwargs...)
 function MeshBody(mesh::Mesh; kwargs...)

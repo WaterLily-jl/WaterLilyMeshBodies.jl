@@ -35,8 +35,7 @@ end
 
 Fill `a` with the signed distance from `body` at time `t`. The distance is computed exactly within `d² ≤ fastd²`,
 and set to `±√fastd²` outside this region. The method depends on `body.boundary`:
- - `body.boundary == true`: The sign of the distance is determined by a flood-fill from scratch. This requires `body.mesh` to be a closed manifold.
-   Wrap the body in a `NarrowBand` to only measure it near its surface, and warm-start the flood-fill.
+ - `body.boundary == true`: The sign of the distance is determined by a flood-fill. This requires `body.mesh` to be a closed manifold.
  - `body.boundary == false`: The mesh is treated as a thin shell with half-thickness `body.half_thk`.
 """
 function WaterLily.measure_sdf!(d::AbstractArray{T}, body::MeshBody{T}, t=zero(T); fastd²=1) where T
@@ -44,7 +43,7 @@ function WaterLily.measure_sdf!(d::AbstractArray{T}, body::MeshBody{T}, t=zero(T
     @inside d[I] = sdf(body, loc(0,I,T), t; fastd²)
 end
 
-# Only seed the NarrowBand flood-fill outside the BVH: the far-field distance of a closed MeshBody is unsigned
+WaterLilyNarrowBand.hasinterior(body::MeshBody) = body.boundary
 function WaterLilyNarrowBand.outside!(reached, body::MeshBody, t)
     body.boundary || return
     bvh, map = body.bvh, x->body.map(x,t)
