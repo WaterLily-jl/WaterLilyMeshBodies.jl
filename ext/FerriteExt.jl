@@ -3,7 +3,7 @@ module FerriteExt
 using Ferrite
 using GeometryBasics
 import WaterLilyMeshBodies: MeshBody, SetBody, save!, update!,
-                            wetfacets, facetnodes, wetfaces, wetentities, facet_weights, facet_loads
+                            wetfacets, facetnodes, wetfaces, wetentities, facet_weights, facet_loads, nodal_dofs
 
 # cells whose reference shape is a surface (shells) or a volume (solids)
 const SurfaceCell = Ferrite.AbstractCell{<:Ferrite.AbstractRefShape{2}}
@@ -189,11 +189,45 @@ function facet_loads(grid::Grid, F::AbstractMatrix{T}, entities=wetentities(grid
     return f
 end
 
+"""
+    nodal_dofs(dh::DofHandler, field=:u)
+
+The global dof ids of `field` at each grid node, a `dim×Nnodes` array: `d[nodal_dofs(dh)]` is
+the `3×Nnodes` nodal solution that `update!(::MeshBody,faces,x,dt)` gathers, and
+`f[nodal_dofs(dh)] .= facet_loads(grid,F)` scatters the surface loads back onto the dofs.
+```julia
+ids = WaterLilyMeshBodies.nodal_dofs(dh)  # once, the dof numbering never changes
+x = X .+ d[ids]                           # deformed nodal positions
+```
+`field` must be interpolated with one base function per cell node, ie. at the grid's own
+order. Nodes of cells that do not carry `field` are left `0`.
+"""
+function nodal_dofs(dh::DofHandler, field::Symbol=:u)
+    sdhs = filter(sdh->field in Ferrite.getfieldnames(sdh), dh.subdofhandlers)
+    isempty(sdhs) && throw(ArgumentError("no cell of the DofHandler carries the field $field"))
+    dim = Ferrite.n_components(Ferrite.getfieldinterpolation(first(sdhs), field))
+    ids = zeros(Int, dim, Ferrite.getnnodes(dh.grid))
+    for sdh in sdhs
+        r = dof_range(sdh, field)
+        for cell in CellIterator(sdh)
+            nodes = getnodes(cell)
+            @assert length(r) == dim*length(nodes) "$field has $(length(r)÷dim) base functions \
+                on a $(length(nodes))-node cell, its interpolation must match the grid order"
+            dofs = @view celldofs(cell)[r] # node-major, the components of a node are contiguous
+            for (a,n) in enumerate(nodes), d in 1:dim
+                ids[d,n] = dofs[dim*(a-1)+d]
+            end
+        end
+    end
+    return ids
+end
+
 # convert a Ferrite grid into a MeshBody. The faces index into the full node vector, so the
-# global Ferrite node ids are preserved and `wetfaces` can be used to update the body
-function MeshBody(grid::Grid{3,P}; kwargs...) where P<:Union{SurfaceCell,VolumeCell}
-    points = GeometryBasics.decompose(Point{3, Float32}, grid)
-    MeshBody(GeometryBasics.Mesh(points, wetfaces(grid)); kwargs...)
+# global Ferrite node ids are preserved and `wetfaces` can be used to update the body.
+# The type of `scale` sets the body's eltype, as for a `GeometryBasics.Mesh`
+function MeshBody(grid::Grid{3,P}; scale::T=1f0, kwargs...) where {P<:Union{SurfaceCell,VolumeCell},T}
+    points = GeometryBasics.decompose(Point{3,T}, grid)
+    MeshBody(GeometryBasics.Mesh(points, wetfaces(grid)); scale, kwargs...)
 end
 
 # mixed-dimension grids have no single notion of a wet surface

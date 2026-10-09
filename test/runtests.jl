@@ -347,6 +347,11 @@ end
         body = MeshBody(grid; half_thk=0.1f0, mem)
         @test length(body.mesh) == 2 # 1 flat quad (no center node) -> 2 triangles
     end
+
+    # the type of `scale` sets the body's eltype
+    grid = embed3d(Ferrite.generate_grid(Ferrite.Quadrilateral, dims, corners))
+    @test eltype(eltype(MeshBody(grid; half_thk=0.1, scale=1.0).mesh)) == Float64
+    @test eltype(eltype(MeshBody(grid; half_thk=0.1f0).mesh)) == Float32
 end
 
 @testset "Ferrite wet surface extraction" begin
@@ -474,6 +479,43 @@ end
     entities = WaterLilyMeshBodies.wetentities(grid)
     @test loads(grid, F, entities) ≈ naive
     @test_throws AssertionError loads(grid, F[1:end-1,:], entities)
+end
+
+@testset "Ferrite nodal dofs" begin
+    ids_of = WaterLilyMeshBodies.nodal_dofs
+    corners = [Ferrite.Vec{2}((0.,0.)), Ferrite.Vec{2}((1.,0.)), Ferrite.Vec{2}((1.,1.)), Ferrite.Vec{2}((0.,1.))]
+    shell(C) = (g = Ferrite.generate_grid(C,(3,2),corners);
+                Ferrite.Grid(g.cells,[Ferrite.Node(Ferrite.Vec{3}((n.x[1],n.x[2],0.))) for n in g.nodes]))
+    function dofhandler(grid, ip; θ=true)
+        dh = Ferrite.DofHandler(grid); Ferrite.add!(dh,:u,ip^3)
+        θ && Ferrite.add!(dh,:θ,ip^2) # the shell layout, :u is no longer the first block
+        Ferrite.close!(dh); dh
+    end
+
+    # every node is mapped, once per component, onto exactly the :u dofs, and gathering
+    # through the map agrees with Ferrite's own nodal evaluation
+    for (grid,ip,θ) in ((shell(Ferrite.Quadrilateral),          Ferrite.Lagrange{Ferrite.RefQuadrilateral,1}(), true),
+                        (shell(Ferrite.QuadraticQuadrilateral), Ferrite.Lagrange{Ferrite.RefQuadrilateral,2}(), true),
+                        (shell(Ferrite.Triangle),               Ferrite.Lagrange{Ferrite.RefTriangle,1}(),      true),
+                        (Ferrite.generate_grid(Ferrite.Hexahedron,(2,2,2)), Ferrite.Lagrange{Ferrite.RefHexahedron,1}(), false))
+        dh = dofhandler(grid, ip; θ)
+        ids = ids_of(dh)
+        @test size(ids) == (3, Ferrite.getnnodes(grid))
+        @test allunique(ids) && length(ids) == 3Ferrite.getnnodes(grid)
+        θ && @test isdisjoint(ids, ids_of(dh,:θ))
+        d = rand(Ferrite.ndofs(dh))
+        @test d[ids] ≈ reduce(hcat, Vector.(Ferrite.evaluate_at_grid_nodes(dh,d,:u)))
+
+        # scattering a nodal array and gathering it back is the identity
+        x = rand(size(ids)...); f = zeros(Ferrite.ndofs(dh)); f[ids] .= x
+        @test f[ids] == x
+    end
+
+    # a field below the grid order has no dof on some nodes, so it is refused
+    @test_throws AssertionError ids_of(dofhandler(shell(Ferrite.QuadraticQuadrilateral),
+                                                  Ferrite.Lagrange{Ferrite.RefQuadrilateral,1}()))
+    @test_throws ArgumentError ids_of(dofhandler(shell(Ferrite.Quadrilateral),
+                                                 Ferrite.Lagrange{Ferrite.RefQuadrilateral,1}()), :w)
 end
 
 @testset "MotionInterpolation" begin

@@ -78,6 +78,7 @@ function wetfaces end
 function wetentities end
 function facet_weights end
 function facet_loads end
+function nodal_dofs end
 
 include("geometry.jl")
 include("bvh.jl")
