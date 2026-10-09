@@ -218,6 +218,19 @@ end
     end
 end
 
+@testset "flipped triangle" begin
+    # a wrong local sign (here, from one flipped triangle) must not leak the flood-fill into the interior
+    L = 16; size = (2L, 2L, 2L); fastd²=9f0
+    for mem in arrays
+        sphere() = MeshBody(joinpath(@__DIR__, "meshes", "sphere.stl"); scale=T(L), map=(x,t)->x .- L, boundary=true, mem)
+        mesh = Array(sphere().mesh); mesh[1] = mesh[1][:,SA[1,3,2]]
+        flipped = update!(sphere(), mem(mesh))
+        σc,σf = zeros(T,size .+ 2) |> mem, zeros(T,size .+ 2) |> mem
+        measure_sdf!(σc, sphere(), 0f0; fastd²); measure_sdf!(σf, flipped, 0f0; fastd²)
+        @test count(≤(-1),σf) == count(≤(-1),σc) > 0
+    end
+end
+
 @testset "Simulation" begin
     L = 8
     for mem in arrays
