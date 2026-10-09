@@ -44,6 +44,9 @@ function WaterLily.measure_sdf!(d::AbstractArray{T}, body::MeshBody{T}, t=zero(T
     @inside d[I] = sdf(body, loc(0,I,T), t; fastd²)
 end
 
-# Seed the NarrowBand flood-fill with the points outside the BVH
-WaterLilyNarrowBand.outside!(reached, body::MeshBody, d, t) = outside!(reached, body.bvh, x->body.map(x,t))
-outside!(reached,bvh,map) = @loop reached[I] = dist(map(loc(0,I)), bvh.nodes[1])>1 over I ∈ CartesianIndices(reached)
+# Only seed the NarrowBand flood-fill outside the BVH: the far-field distance of a closed MeshBody is unsigned
+function WaterLilyNarrowBand.outside!(reached, body::MeshBody, t)
+    body.boundary || return
+    bvh, map = body.bvh, x->body.map(x,t)
+    @loop reached[I] = reached[I] && dist(map(loc(0,I)), bvh.nodes[1])>1 over I ∈ CartesianIndices(reached)
+end
