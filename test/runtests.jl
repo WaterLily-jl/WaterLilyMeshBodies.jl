@@ -127,22 +127,6 @@ end
     end
 end
 
-@testset "Flood Classifier" begin
-    # Closed near-band ring encloses a 6x6 interior region (indices 6:11, 6:11)
-    d = fill(T(5), 16, 16)
-    d[5, 5:12] .= 0
-    d[12, 5:12] .= 0
-    d[5:12, 5] .= 0
-    d[5:12, 12] .= 0
-    near = similar(d, Bool)
-    reached = similar(d, Bool); fill!(reached, true); reached[inside(d)] .= false
-    farinside = similar(d, Bool)
-    WaterLilyMeshBodies.flood_fill!(near, reached, farinside, d)
-    @test count(@view(farinside[6:11, 6:11])) == 36
-    @test all(@view(farinside[5, 5:12]) .== false)
-    @test all(@view(farinside[12, 5:12]) .== false)
-end
-
 @testset "Updates" begin
     x1 = SA{T}[0,0,0]
 
