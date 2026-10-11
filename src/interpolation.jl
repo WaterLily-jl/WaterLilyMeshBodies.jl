@@ -51,6 +51,7 @@ function interpolate!(body::MeshBody{T}, a::MotionInterpolation, t) where {T}
 end
 interpolate!(body::AbstractBody,args...) = body
 interpolate!(body::SetBody,args...) = SetBody(body.op,interpolate!(body.a,args...),interpolate!(body.b,args...))
+interpolate!(body::NarrowBand,args...) = WaterLilyNarrowBand.rewrap(body,interpolate!(body.body,args...))
 
 # periodic: wrap t into one period, extend times modularly for the 4-point stencil
 function get_coeffs(times, t, period, ::Val{true})

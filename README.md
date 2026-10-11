@@ -76,7 +76,6 @@ where the `motion_data` 2D Array with dimensions `[N_snapshots × N_elements]`, 
 | `scale` | `1f0` | Scale factor applied to mesh coordinates |
 | `map(x,t)` | identity | Coordinate mapping from simulation space to mesh space |
 | `boundary` | `false` | `true` for closed watertight surfaces; `false` for open/shell surfaces |
-| `size` | `nothing` | WaterLily simulation size to create a flood-fill cache |
 | `half_thk` | `1.866f0` | Half-thickness (in grid cells) when `boundary=false` |
 | `mem` | `Array` | Memory backend: `Array`, `CUDA.CuArray`, etc. |
 | `primitive` | `BBox` | Bounding volume type for the BVH: `BBox` (default) or `BSphere` |
@@ -85,7 +84,7 @@ where the `motion_data` 2D Array with dimensions `[N_snapshots × N_elements]`, 
 
 Closest-triangle queries are accelerated by a Bounding Volume Hierarchy (BVH) built with [ImplicitBVH.jl](https://github.com/JuliaArrays/ImplicitBVH.jl), reducing each query from $O(N)$ to $O(\log N)$ where $N$ is the number of triangles. The surface velocity at the closest point is interpolated from the triangle's vertex velocities using barycentric shape functions.
 
-The default `boundary=false` results in a open/shell body with finite half-thickness `half_thk`. Setting `boundary=true` attempts to create a closed body signed distance function with $d<0$ internally using floof-fill to determine the sign. Initializing the `MeshBody` with the WaterLily simulation `size` will build a flood-fill cache, speeding up repeated remeasurement for moving meshes. 
+The default `boundary=false` results in a open/shell body with finite half-thickness `half_thk`. Setting `boundary=true` attempts to create a closed body signed distance function with $d<0$ internally using flood-fill to determine the sign. For moving meshes, wrap the body in a [`NarrowBand`](https://github.com/weymouth/WaterLilyNarrowBand.jl) to only remeasure it near its surface, with a warm-started flood-fill: `body = NarrowBand(MeshBody(...), dims)`.
 
 > [!WARNING]
 > If a mesh is not "water-tight" or has faces with inward facing normals, the `boundary=true` signed distance measurement will fail.
