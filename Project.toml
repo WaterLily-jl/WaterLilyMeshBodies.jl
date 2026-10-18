@@ -32,9 +32,6 @@ WaterLilyNarrowBand = "0.1"
 WriteVTK = "1.21.2"
 julia = "1.11"
 
-[sources]
-WaterLilyNarrowBand = {url = "https://github.com/weymouth/WaterLilyNarrowBand.jl"}
-
 [extras]
 CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
