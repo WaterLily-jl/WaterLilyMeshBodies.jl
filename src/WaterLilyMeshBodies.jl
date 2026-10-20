@@ -14,32 +14,22 @@ struct MeshBody{T,M,B,F} <: AbstractBody
     scale::T
     boundary::Bool
     half_thk::T
-    cache::C
 end
-function MeshBody(mesh::M,vel::M,bvh::B;map=(x,t)->x,scale=1.f0,boundary=false,half_thk=1.866f0,size=nothing) where {M,B}
-    cache = isnothing(size) ? nothing : ntuple(i -> similar(mesh, Bool, size .+ 2), 3)
-    isnothing(cache) || outside!(cache[2], bvh, x->map(x,0f0))
-    # the base type follows the triangles, the keywords are converted to it
-    MeshBody{basetype(mesh),M,B,typeof(map),typeof(cache)}(mesh,vel,bvh,map,scale,boundary,half_thk,cache)
-end
+# the base type follows the triangles, the keywords are converted to it
+MeshBody(mesh::M,vel::M,bvh::B;map=(x,t)->x,scale=1.f0,boundary=false,half_thk=1.866f0) where {M,B} =
+    MeshBody{basetype(mesh),M,B,typeof(map)}(mesh,vel,bvh,map,scale,boundary,half_thk)
 # eltype of the triangles held by the mesh, ie. `SMatrix{3,3,T}` -> `T`
 basetype(mesh) = eltype(eltype(mesh))
-using Adapt
+
 # make it GPU compatible
+using Adapt
 function Adapt.adapt_structure(to, body::MeshBody)
     mesh = Adapt.adapt(to, body.mesh)
     velocity = Adapt.adapt(to, body.velocity)
     bvh = Adapt.adapt(to, body.bvh)
-    cache = Adapt.adapt(to, body.cache)
-    MeshBody{basetype(mesh),typeof(mesh),typeof(bvh),typeof(body.map),typeof(cache)}(
-        mesh, velocity, bvh, body.map, body.scale, body.boundary, body.half_thk, cache)
+    MeshBody{basetype(mesh),typeof(mesh),typeof(bvh),typeof(body.map)}(
+        mesh, velocity, bvh, body.map, body.scale, body.boundary, body.half_thk)
 end
-MeshBody(mesh::M,vel::M,bvh::B;map=(x,t)->x,scale=1.f0,boundary=false,half_thk=1.866f0) where {M,B} =
-    MeshBody(mesh,vel,bvh,map,scale,boundary,half_thk)
-
-# make it GPU compatible
-using Adapt
-Adapt.@adapt_structure MeshBody
 Adapt.@adapt_structure SetBody
 
 """
