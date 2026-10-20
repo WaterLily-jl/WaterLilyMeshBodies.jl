@@ -15,12 +15,21 @@ struct MeshBody{T,M,B,F} <: AbstractBody
     boundary::Bool
     half_thk::T
 end
+# the base type follows the triangles, the keywords are converted to it
 MeshBody(mesh::M,vel::M,bvh::B;map=(x,t)->x,scale=1.f0,boundary=false,half_thk=1.866f0) where {M,B} =
-    MeshBody(mesh,vel,bvh,map,scale,boundary,half_thk)
+    MeshBody{basetype(mesh),M,B,typeof(map)}(mesh,vel,bvh,map,scale,boundary,half_thk)
+# eltype of the triangles held by the mesh, ie. `SMatrix{3,3,T}` -> `T`
+basetype(mesh) = eltype(eltype(mesh))
 
 # make it GPU compatible
 using Adapt
-Adapt.@adapt_structure MeshBody
+function Adapt.adapt_structure(to, body::MeshBody)
+    mesh = Adapt.adapt(to, body.mesh)
+    velocity = Adapt.adapt(to, body.velocity)
+    bvh = Adapt.adapt(to, body.bvh)
+    MeshBody{basetype(mesh),typeof(mesh),typeof(bvh),typeof(body.map)}(
+        mesh, velocity, bvh, body.map, body.scale, body.boundary, body.half_thk)
+end
 Adapt.@adapt_structure SetBody
 
 """
@@ -56,12 +65,23 @@ function MeshBody(mesh::Mesh{3,T,P}; scale::T=1.f0, mem=Array, primitive=Implici
     MeshBody(mesh, zero(mesh), bvh; scale=T(scale), kwargs...)
 end
 
+# implemented by FerriteExt, declared here so they are reachable as
+# `WaterLilyMeshBodies.wetfacets(grid)` when Ferrite is loaded
+function wetfacets end
+function facetnodes end
+function wetfaces end
+function wetentities end
+function facet_weights end
+function facet_loads end
+function nodal_dofs end
+
 include("geometry.jl")
 include("bvh.jl")
 include("measure.jl")
 include("update.jl")
 include("io.jl")
 include("interpolation.jl")
+include("forces.jl")
 
 export MeshBody, NarrowBand, save!, update!
 
