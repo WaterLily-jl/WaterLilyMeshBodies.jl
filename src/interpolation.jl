@@ -37,7 +37,7 @@ sim.body = interpolate!(sim.body, a, t)
 ```
 """
 function interpolate!(body::MeshBody{T}, a::MotionInterpolation, t) where {T}
-    dt = t - a.t[]; a.t[] = t
+    a.t[] = t
     k1, k2, k3, k4, τ, Δt_k, Δt_l, Δt_r = get_coeffs(a.times, t, a.period, Val(a.periodic))
     p0, p1 = a.motion_data[k1, :], a.motion_data[k2, :]
     p2, p3 = a.motion_data[k3, :], a.motion_data[k4, :]
@@ -47,7 +47,13 @@ function interpolate!(body::MeshBody{T}, a::MotionInterpolation, t) where {T}
     h00, h10 =  2τ^3-3τ^2+1,  τ^3-2τ^2+τ
     h01, h11 = -2τ^3+3τ^2,    τ^3-τ^2
     motion_at_t = @. h00*p1 + (h10*T(Δt_k))*m1 + h01*p2 + (h11*T(Δt_k))*m2
-    return update!(body, motion_at_t, dt)
+    # analytic dHermite/dt, so the velocity is at the same time level as the position
+    # and does not depend on the flow time step. Catmull-Rom is C¹, so this is
+    # continuous across the knots: it returns m1 at τ=0 and m2 at τ=1.
+    g00, g10 =  6τ^2-6τ,  3τ^2-4τ+1
+    g01, g11 = -6τ^2+6τ,  3τ^2-2τ
+    velocity_at_t = @. (g00*p1 + g01*p2)/T(Δt_k) + g10*m1 + g11*m2
+    return update!(body, motion_at_t, velocity_at_t)
 end
 interpolate!(body::AbstractBody,args...) = body
 interpolate!(body::SetBody,args...) = SetBody(body.op,interpolate!(body.a,args...),interpolate!(body.b,args...))
