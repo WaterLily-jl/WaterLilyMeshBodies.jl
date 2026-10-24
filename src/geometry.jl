@@ -4,9 +4,10 @@ using StaticArrays
 using LinearAlgebra: cross
 import WaterLily: ×
 
-@fastmath @inline normal(tri::SMatrix) = hat(SVector(cross(tri[:,2]-tri[:,1],tri[:,3]-tri[:,1])))
+@fastmath @inline normal(tri::SMatrix) = hat(dS(tri))
 @fastmath @inline hat(v) = v/(√(v'*v)+eps(eltype(v)))
 @fastmath @inline center(tri::SMatrix) = SVector(sum(tri,dims=2)/3)
+@fastmath @inline dS(tri::SMatrix) = 0.5f0SVector(cross(tri[:,2]-tri[:,1],tri[:,3]-tri[:,1]))
 
 # linear shape function to interpolate inside element
 @fastmath @inline shape_value(p::SVector{3,T},t) where T = SA{T}[√sum(abs2,×(t[:,2]-p,t[:,3]-p))
