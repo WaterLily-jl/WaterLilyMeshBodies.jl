@@ -82,16 +82,16 @@ where the `motion_data` 2D Array with dimensions `[N_snapshots × N_elements]`, 
 
 #### Surface output
 
-Any WaterLily body, and the no-slip `walls` of a simulation, can be meshed to write surface fields for ParaView:
+`surface_attrib(sim)` gives the `vtkWriter` attributes to `save!` the pressure, traction, wall shear, slip velocity and normal on a `MeshBody`: the simulation's own, the no-slip `walls` (two triangles per wall cell), or any other body meshed by marching cubes (`using Meshing`):
 
 ```julia
-using Meshing                                                     # marching cubes of the sdf
-body = MeshBody(sim.body, size(sim.flow.p).-2; mem=CUDA.CuArray)
-walls = MeshBody(Walls(sim.flow); mem=CUDA.CuArray)               # two triangles per wall cell
-save!(vtkWriter("body"; attrib=surface_attrib(sim)), body, sim_time(sim))
-save!(vtkWriter("walls"; attrib=surface_attrib(sim; walls=true)), walls, sim_time(sim))
+using Meshing
+body = MeshBody(sim.body, size(sim.flow.p).-2; t=WaterLily.time(sim.flow), mem=CUDA.CuArray)
+walls = MeshBody(Walls(sim.flow); mem=CUDA.CuArray)
+wb, ww = vtkWriter("body"; attrib=surface_attrib(sim)), vtkWriter("walls"; attrib=surface_attrib(sim))
+save!(wb, body, sim_time(sim)); save!(ww, walls, sim_time(sim)); close(wb); close(ww)
 ```
-The attributes are the pressure, traction, wall shear, slip velocity and normal. They are linear in the flow, so their time averages on a static body follow from a `MeanFlow` at the end of the run with `WaterLily.copy!(sim.flow, meanflow)`, which overwrites `sim.flow`. Smoothed bodies are sampled outside the BDIM kernel as in `SurfaceForces`, constant per triangle, and the walls on the surface, where no-slip is exact. The mesh must use the simulation's `mem`, and its vertices are in mesh coordinates, so a `MeshBody` with a non-identity `map` is sampled in the wrong place.
+A mesh on the walls is sampled on the surface, where no-slip is exact, and any other outside the BDIM kernel as in `SurfaceForces`, constant per triangle. The meshes must use the simulation's `mem`. On a static body, `WaterLily.copy!(sim.flow, meanflow)` before saving gives the time averages of a `MeanFlow` (it overwrites `sim.flow`). Vertices are in mesh coordinates, so a `MeshBody` with a non-identity `map` is sampled in the wrong place: mesh it by marching cubes instead.
 
 ### Method
 

@@ -20,8 +20,7 @@ function save!(w,a::MeshBody,t=w.count[1])
     cells = [MeshCell(VTKCellTypes.VTK_TRIANGLE, TriangleFace{Int}(3i+1,3i+2,3i+3)) for i in 0:length(a.mesh)-1]
     vtk = vtk_grid(w.dir_name*@sprintf("/%s_%06i", w.fname, k), points, cells)
     for (name,func) in w.output_attrib
-        # point/vector data must be oriented in the same way as the mesh
-        vtk[name] = ndims(func(a))==1 ? func(a) : permutedims(func(a))
+        v = func(a); vtk[name] = ndims(v)==1 ? v : permutedims(v) # vector data must be oriented as the mesh
     end
     vtk_save(vtk); w.count[1]=k+1
     w.collection[round(t,digits=4)]=vtk

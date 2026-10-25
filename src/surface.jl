@@ -13,44 +13,32 @@ function MeshBody(w::Walls{3}; kwargs...)
     end
     MeshBody(GeometryBasics.Mesh(tri, [GLTriangleFace(i,i+1,i+2) for i in 1:3:length(tri)]); kwargs...)
 end
-"""
-    vertices(body::MeshBody)
-
-Positions and normals of the triangle vertices as `3K×3` matrices, in mesh coordinates and in the order of `save!`.
-"""
+# positions and normals of the triangle vertices as 3K×3 matrices, in mesh coordinates and in the order of `save!`
 vertices(a::MeshBody{T}) where T = rows(a.mesh,T), rows(repeat(normal.(a.mesh),inner=3),T)
 rows(v,T) = permutedims(reshape(reinterpret(T,v),3,:))
-"""
-    surface_sample(sim, body::MeshBody; walls=false, δ=1)
-
-Pressure `p`, traction `τ` (the wall's on the fluid, as `total_force`), wall shear `ws` (the fluid's on the wall) and, for
-bodies, slip velocity `slip` at the `3K` vertices of `body`. Walls are sampled on the surface, where no-slip is exact, and
-smoothed bodies `δ` off it, outside the BDIM kernel, with the stencils of `SurfaceForces` (constant per triangle).
-"""
-function surface_sample(sim,b::MeshBody;walls=false,δ=1)
-    x,n = vertices(b)
-    if walls
+# fields of `surface_attrib` at the 3K vertices of `b`
+function surface_sample(sim,b::MeshBody;δ=1)
+    x,n = vertices(b); w = Walls(sim.flow)
+    if all(tri->all(i->sdf(w,tri[:,i])==0,1:3),b.mesh) # on the walls
         v = WaterLily.surface_values(sim.flow,x,n)
-        return (p=v.p, τ=v.τ, ws=n.*sum(v.τ.*n,dims=2).-v.τ)
+        return (p=v.p, τ=v.τ, ws=n.*sum(v.τ.*n,dims=2).-v.τ, slip=zero(x), n)
     end
     ps,wss,sl = similar(x,size(x,1)),similar(x),similar(x); bnd = Val(b.boundary)
     @loop body_sample!(ps,wss,sl,I,b.mesh,b.velocity,sim.flow.p,sim.flow.u,sim.flow.ν,δ,bnd) over I ∈ CartesianIndices(b.mesh)
-    (p=ps, τ=ps.*n.-wss, ws=wss, slip=sl)
+    (p=ps, τ=ps.*n.-wss, ws=wss, slip=sl, n)
 end
 @inline function body_sample!(ps,wss,sl,I,mesh,vel,p,u,ν,δ,bnd)
-    tri = mesh[I]; ds = dS(tri); A = area(ds)
-    pk,wk,sk = sum(get_p(tri,p,δ,bnd).*ds)/A^2, -get_v(tri,vel[I],u,ν,δ,bnd)/A, interp(center(tri),u)-vel[I]*SA[1,1,1]/3
+    tri = SMatrix{3,3,eltype(p)}(mesh[I]); ds = dS(tri); A = area(ds)
+    pk,wk,sk = sum(get_p(tri,p,δ,bnd).*ds)/A^2, -get_v(tri,vel[I],u,ν,δ,bnd)/A, interp(center(tri),u)-center(vel[I])
     for j in 3I[1]-2:3I[1]; ps[j] = pk; wss[j,:] .= wk; sl[j,:] .= sk; end
 end
 """
-    surface_attrib(sim; walls=false)
+    surface_attrib(sim; δ=1)
 
-`vtkWriter` attributes for `save!(w,body::MeshBody,t)`: pressure, traction, wall shear, slip velocity (bodies only) and normal
-of `surface_sample`. Use `walls=true` for the walls. The samples are linear in the flow, so after `WaterLily.copy!(sim.flow,meanflow)`
-they are the time averages on a static `body`.
+`vtkWriter` attributes for `save!(w,body::MeshBody,t)`: pressure, traction (the wall's on the fluid, as `total_force`), wall shear
+(the fluid's on the wall), slip velocity and normal. A mesh on the no-slip walls is sampled on the surface, where no-slip is exact,
+and any other `δ` off it with the `SurfaceForces` stencils (constant per triangle), so both integrate to the force metrics. The
+fields are linear in the flow, so after `WaterLily.copy!(sim.flow,meanflow)` they are the time averages on a static `body`.
 """
-function surface_attrib(sim; walls=false)
-    s(f) = b->Array(f(surface_sample(sim,b;walls)))
-    d = Dict{String,Function}("Pressure"=>s(v->v.p), "Traction"=>s(v->v.τ), "WallShear"=>s(v->v.ws), "Normal"=>b->Array(vertices(b)[2]))
-    walls || (d["SlipVelocity"] = s(v->v.slip)); d
-end
+surface_attrib(sim; kw...) = Dict{String,Function}(k=>b->Array(surface_sample(sim,b;kw...)[f]) for (k,f) in
+    ("Pressure"=>:p, "Traction"=>:τ, "WallShear"=>:ws, "SlipVelocity"=>:slip, "Normal"=>:n))
