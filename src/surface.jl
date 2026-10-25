@@ -55,36 +55,14 @@ end
     for j in 3I[1]-2:3I[1]; ps[j] = pk; wss[j,:] .= wk; sl[j,:] .= sk; end
 end
 """
-    SurfaceStats(sim, body::MeshBody; walls=false)
-
-Running time averages of the pressure and wall shear on `body` and of their squares, for their mean and RMS. Call
-`update!(stats,sim)` every time step and pass `stats` to `surface_attrib`.
-"""
-struct SurfaceStats{B,A,M}
-    body :: B
-    walls :: Bool
-    p :: A; p² :: A; ws :: M; ws² :: M
-    t :: Vector{Float64}
-end
-SurfaceStats(sim,b::MeshBody;walls=false) = (x = vertices(b)[1]; z(a) = fill!(similar(a),0);
-    SurfaceStats(b,walls,z(x[:,1]),z(x[:,1]),z(x),z(x),[Float64(WaterLily.time(sim.flow))]))
-function update!(s::SurfaceStats,sim)
-    t = WaterLily.time(sim.flow); ε = (t-s.t[end])/(t-s.t[1]+eps()); push!(s.t,t)
-    v = surface_sample(sim,s.body;s.walls)
-    for (m,a) in ((s.p,v.p),(s.p²,v.p.^2),(s.ws,v.ws),(s.ws²,v.ws.^2)); @. m = ε*a+(1-ε)*m; end
-end
-rms(m,m²) = sqrt.(max.(m².-m.^2,0))
-"""
-    surface_attrib(sim; walls=false, stats=nothing)
+    surface_attrib(sim; walls=false)
 
 `vtkWriter` attributes for `save!(w,body::MeshBody,t)`: pressure, traction, wall shear, slip velocity (bodies only) and normal
-of `surface_sample`, and the mean and RMS pressure and wall shear of `stats::SurfaceStats`. Use `walls=true` for the walls.
+of `surface_sample`. Use `walls=true` for the walls. The samples are linear in the flow, so after `WaterLily.copy!(sim.flow,meanflow)`
+they are the time averages on a static `body`.
 """
-function surface_attrib(sim; walls=false, stats=nothing)
+function surface_attrib(sim; walls=false)
     s(f) = b->Array(f(surface_sample(sim,b;walls)))
     d = Dict{String,Function}("Pressure"=>s(v->v.p), "Traction"=>s(v->v.τ), "WallShear"=>s(v->v.ws), "Normal"=>b->Array(vertices(b)[2]))
-    walls || (d["SlipVelocity"] = s(v->v.slip))
-    isnothing(stats) || merge!(d, Dict{String,Function}("MeanPressure"=>_->Array(stats.p), "RMSPressure"=>_->Array(rms(stats.p,stats.p²)),
-        "MeanWallShear"=>_->Array(stats.ws), "RMSWallShear"=>_->Array(rms(stats.ws,stats.ws²))))
-    d
+    walls || (d["SlipVelocity"] = s(v->v.slip)); d
 end

@@ -443,18 +443,17 @@ end
         @test body.boundary && all(sum((Array(x).-c').*Array(n),dims=2) .> 0) && isapprox(sum(area(x)),4π*R^2,rtol=0.03)
         @test all(v->v≈SA[1 1 1;0 0 0;0 0 0], Array(MeshBody(AutoBody(sphere.sdf,(x,t)->x.-SA[t,0,0]),N;mem=f).velocity))
         # sampled off the surface as `SurfaceForces`, so the attributes integrate to its forces
-        sim = Simulation(N,(1f0,0f0,0f0),R;ν=1f-2,body,mem=f); st = SurfaceStats(sim,body); sim_step!(sim)
+        sim = Simulation(N,(1f0,0f0,0f0),R;ν=1f-2,body,mem=f); m = MeanFlow(sim.flow); sim_step!(sim)
         v = sample(sim,body); sf = SurfaceForces(sim.body)
         @test ∫(x,v.p.*n) ≈ WaterLily.pressure_force(sf,sim) rtol=1e-4
         @test ∫(x,-v.ws) ≈ WaterLily.viscous_force(sf,sim) rtol=1e-4
         @test size(v.slip) == size(x) && all(isfinite,Array(v.slip))
-        # statistics: the time-weighted mean and RMS of the samples
-        t = [WaterLily.time(sim.flow)]; v₁ = sample(sim,body); update!(st,sim); sim_step!(sim)
-        push!(t,WaterLily.time(sim.flow)); v₂ = sample(sim,body); update!(st,sim)
-        w = (t[1]-st.t[1],t[2]-t[1])./(t[2]-st.t[1])
-        @test Array(st.p) ≈ Array(w[1]*v₁.p+w[2]*v₂.p) && Array(st.ws) ≈ Array(w[1]*v₁.ws+w[2]*v₂.ws)
-        @test isapprox(Array(WaterLilyMeshBodies.rms(st.p,st.p²)),Array(sqrt(w[1]*w[2])*abs.(v₁.p-v₂.p)),atol=1e-3)
-        ws = vtkWriter("surface";attrib=surface_attrib(sim;stats=st),dir="TEST_DIR"); save!(ws,body,sim_time(sim)); close(ws)
+        # time averages: the samples are linear in the flow, so sampling the `MeanFlow` gives their mean
+        t = [WaterLily.time(sim.flow)]; v₁ = sample(sim,body); update!(m,sim.flow); sim_step!(sim)
+        push!(t,WaterLily.time(sim.flow)); v₂ = sample(sim,body); update!(m,sim.flow)
+        w = (t[1]-m.t[1],t[2]-t[1])./(t[2]-m.t[1]); WaterLily.copy!(sim.flow,m); v = sample(sim,body)
+        @test Array(v.p) ≈ Array(w[1]*v₁.p+w[2]*v₂.p) && Array(v.ws) ≈ Array(w[1]*v₁.ws+w[2]*v₂.ws)
+        ws = vtkWriter("surface";attrib=surface_attrib(sim),dir="TEST_DIR"); save!(ws,body,sim_time(sim)); close(ws)
         @test isfile("TEST_DIR/surface_000000.vtu")
         rm("TEST_DIR",recursive=true); rm("surface.pvd")
     end

@@ -87,11 +87,10 @@ Any WaterLily body, and the no-slip `walls` of a simulation, can be meshed to wr
 ```julia
 body = MeshBody(sim.body, size(sim.flow.p).-2; mem=CUDA.CuArray) # marching cubes of the sdf
 walls = MeshBody(Walls(sim.flow); mem=CUDA.CuArray)               # two triangles per wall cell
-stats = SurfaceStats(sim, body)                                    # call update!(stats, sim) every step
-save!(vtkWriter("body"; attrib=surface_attrib(sim; stats)), body, sim_time(sim))
+save!(vtkWriter("body"; attrib=surface_attrib(sim)), body, sim_time(sim))
 save!(vtkWriter("walls"; attrib=surface_attrib(sim; walls=true)), walls, sim_time(sim))
 ```
-The attributes are the pressure, traction, wall shear, slip velocity and normal, and the mean and RMS pressure and wall shear of `stats`. Smoothed bodies are sampled outside the BDIM kernel as in `SurfaceForces`, constant per triangle, and the walls on the surface, where no-slip is exact. The mesh must use the simulation's `mem`, and its vertices are in mesh coordinates, so a `MeshBody` with a non-identity `map` is sampled in the wrong place.
+The attributes are the pressure, traction, wall shear, slip velocity and normal. They are linear in the flow, so their time averages on a static body follow from a `MeanFlow` at the end of the run with `WaterLily.copy!(sim.flow, meanflow)`, which overwrites `sim.flow`. Smoothed bodies are sampled outside the BDIM kernel as in `SurfaceForces`, constant per triangle, and the walls on the surface, where no-slip is exact. The mesh must use the simulation's `mem`, and its vertices are in mesh coordinates, so a `MeshBody` with a non-identity `map` is sampled in the wrong place.
 
 ### Method
 
