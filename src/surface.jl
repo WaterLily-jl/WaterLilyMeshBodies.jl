@@ -6,12 +6,12 @@
 Mesh of the walls with two triangles per wall cell, vertices on the cell corners and normals into the fluid.
 """
 function MeshBody(w::Walls{3}; kwargs...)
-    tri = Point3f[]
+    q = Point3f[]
     for g in w.faces, a in 0:w.N[mod1(abs(g)+1,3)]-1, b in 0:w.N[mod1(abs(g)+2,3)]-1
         P(s,r) = Point3f(circshift([g<0 ? 0 : w.N[abs(g)], a+s, b+r], abs(g)-1))
-        append!(tri, g<0 ? (P(0,0),P(1,0),P(1,1),P(0,0),P(1,1),P(0,1)) : (P(0,0),P(1,1),P(1,0),P(0,0),P(0,1),P(1,1)))
+        append!(q, g<0 ? (P(0,0),P(1,0),P(1,1),P(0,1)) : (P(0,0),P(0,1),P(1,1),P(1,0)))
     end
-    MeshBody(GeometryBasics.Mesh(tri, [GLTriangleFace(i,i+1,i+2) for i in 1:3:length(tri)]); kwargs...)
+    MeshBody(GeometryBasics.Mesh(q, [QuadFace(i,i+1,i+2,i+3) for i in 1:4:length(q)]); kwargs...)
 end
 # positions and normals of the triangle vertices as 3K×3 matrices, in mesh coordinates and in the order of `save!`
 vertices(a::MeshBody{T}) where T = rows(a.mesh,T), rows(repeat(normal.(a.mesh),inner=3),T)
