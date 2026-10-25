@@ -425,3 +425,37 @@ end
               [-factor*ν*γ*A,0,0] rtol=1e-3 atol=1e-8
     end
 end
+
+@testset "Surface output" begin
+    vertices, sample = WaterLilyMeshBodies.vertices, WaterLilyMeshBodies.surface_sample
+    area(x) = (X = Array(x); [norm(cross(X[3k-1,:]-X[3k-2,:],X[3k,:]-X[3k-2,:]))/2 for k in 1:size(X,1)÷3])
+    ∫(x,τ) = (A = area(x); τ = Array(τ); sum(A[k]*vec(sum(τ[3k-2:3k,:],dims=1))/3 for k in eachindex(A)))
+    for f ∈ arrays
+        N = (32,16,16); c = SA[12f0,8f0,8f0]; R = 4f0; sphere = AutoBody((x,t)->√sum(abs2,x.-c)-R)
+        sim = Simulation(N,(1f0,0f0,0f0),R;ν=1f-2,body=sphere,walls=(-2,2,-3),mem=f); sim_step!(sim,1)
+        # walls: sampled on the surface, the cell-corner vertices integrate to the wall forces
+        walls = MeshBody(Walls(sim.flow);mem=f); x,n = vertices(walls); v = sample(sim,walls;walls=true)
+        @test size(x,1) == 3*2*3*32*16 && all(sum((SA[16,8,8]' .- Array(x)).*Array(n),dims=2) .> 0)
+        @test ∫(x,v.τ) ≈ WaterLily.total_force(sim.flow,Walls(sim.flow)) rtol=1e-3
+        @test maximum(abs,sum(Array(v.ws.*n),dims=2)) < 1e-5 && isapprox(∫(x,v.ws)[1],-WaterLily.viscous_force(sim.flow,Walls(sim.flow))[1],rtol=1e-3)
+        # smoothed body: closed marching-cubes mesh with outward normals and the body velocity
+        body = MeshBody(sphere,N;mem=f); x,n = vertices(body)
+        @test body.boundary && all(sum((Array(x).-c').*Array(n),dims=2) .> 0) && isapprox(sum(area(x)),4π*R^2,rtol=0.03)
+        @test all(v->v≈SA[1 1 1;0 0 0;0 0 0], Array(MeshBody(AutoBody(sphere.sdf,(x,t)->x.-SA[t,0,0]),N;mem=f).velocity))
+        # sampled off the surface as `SurfaceForces`, so the attributes integrate to its forces
+        sim = Simulation(N,(1f0,0f0,0f0),R;ν=1f-2,body,mem=f); st = SurfaceStats(sim,body); sim_step!(sim)
+        v = sample(sim,body); sf = SurfaceForces(sim.body)
+        @test ∫(x,v.p.*n) ≈ WaterLily.pressure_force(sf,sim) rtol=1e-4
+        @test ∫(x,-v.ws) ≈ WaterLily.viscous_force(sf,sim) rtol=1e-4
+        @test size(v.slip) == size(x) && all(isfinite,Array(v.slip))
+        # statistics: the time-weighted mean and RMS of the samples
+        t = [WaterLily.time(sim.flow)]; v₁ = sample(sim,body); update!(st,sim); sim_step!(sim)
+        push!(t,WaterLily.time(sim.flow)); v₂ = sample(sim,body); update!(st,sim)
+        w = (t[1]-st.t[1],t[2]-t[1])./(t[2]-st.t[1])
+        @test Array(st.p) ≈ Array(w[1]*v₁.p+w[2]*v₂.p) && Array(st.ws) ≈ Array(w[1]*v₁.ws+w[2]*v₂.ws)
+        @test isapprox(Array(WaterLilyMeshBodies.rms(st.p,st.p²)),Array(sqrt(w[1]*w[2])*abs.(v₁.p-v₂.p)),atol=1e-3)
+        ws = vtkWriter("surface";attrib=surface_attrib(sim;stats=st),dir="TEST_DIR"); save!(ws,body,sim_time(sim)); close(ws)
+        @test isfile("TEST_DIR/surface_000000.vtu")
+        rm("TEST_DIR",recursive=true); rm("surface.pvd")
+    end
+end

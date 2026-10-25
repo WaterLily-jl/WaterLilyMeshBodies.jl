@@ -80,6 +80,19 @@ where the `motion_data` 2D Array with dimensions `[N_snapshots × N_elements]`, 
 | `mem` | `Array` | Memory backend: `Array`, `CUDA.CuArray`, etc. |
 | `primitive` | `BBox` | Bounding volume type for the BVH: `BBox` (default) or `BSphere` |
 
+#### Surface output
+
+Any WaterLily body, and the no-slip `walls` of a simulation, can be meshed to write surface fields for ParaView:
+
+```julia
+body = MeshBody(sim.body, size(sim.flow.p).-2; mem=CUDA.CuArray) # marching cubes of the sdf
+walls = MeshBody(Walls(sim.flow); mem=CUDA.CuArray)               # two triangles per wall cell
+stats = SurfaceStats(sim, body)                                    # call update!(stats, sim) every step
+save!(vtkWriter("body"; attrib=surface_attrib(sim; stats)), body, sim_time(sim))
+save!(vtkWriter("walls"; attrib=surface_attrib(sim; walls=true)), walls, sim_time(sim))
+```
+The attributes are the pressure, traction, wall shear, slip velocity and normal, and the mean and RMS pressure and wall shear of `stats`. Smoothed bodies are sampled outside the BDIM kernel as in `SurfaceForces`, constant per triangle, and the walls on the surface, where no-slip is exact. The mesh must use the simulation's `mem`, and its vertices are in mesh coordinates, so a `MeshBody` with a non-identity `map` is sampled in the wrong place.
+
 ### Method
 
 Closest-triangle queries are accelerated by a Bounding Volume Hierarchy (BVH) built with [ImplicitBVH.jl](https://github.com/JuliaArrays/ImplicitBVH.jl), reducing each query from $O(N)$ to $O(\log N)$ where $N$ is the number of triangles. The surface velocity at the closest point is interpolated from the triangle's vertex velocities using barycentric shape functions.
