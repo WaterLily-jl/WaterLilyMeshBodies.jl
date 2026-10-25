@@ -85,7 +85,8 @@ where the `motion_data` 2D Array with dimensions `[N_snapshots × N_elements]`, 
 Any WaterLily body, and the no-slip `walls` of a simulation, can be meshed to write surface fields for ParaView:
 
 ```julia
-body = MeshBody(sim.body, size(sim.flow.p).-2; mem=CUDA.CuArray) # marching cubes of the sdf
+using Meshing                                                     # marching cubes of the sdf
+body = MeshBody(sim.body, size(sim.flow.p).-2; mem=CUDA.CuArray)
 walls = MeshBody(Walls(sim.flow); mem=CUDA.CuArray)               # two triangles per wall cell
 save!(vtkWriter("body"; attrib=surface_attrib(sim)), body, sim_time(sim))
 save!(vtkWriter("walls"; attrib=surface_attrib(sim; walls=true)), walls, sim_time(sim))

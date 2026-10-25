@@ -1,5 +1,6 @@
 using WaterLilyMeshBodies
 using Test, GPUArrays, StaticArrays, WaterLily, LinearAlgebra, GeometryBasics
+import Meshing # MeshBody(body::AbstractBody, N)
 import ImplicitBVH
 import ImplicitBVH: BBox, BSphere
 
