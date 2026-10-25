@@ -20,7 +20,9 @@ MeshBody(mesh::M,vel::M,bvh::B;map=(x,t)->x,scale=1.f0,boundary=false,half_thk=1
 
 # make it GPU compatible
 using Adapt
-Adapt.@adapt_structure MeshBody
+# `map` is not adapted: Adapt rebuilds callable structs such as `RigidMap` as closures, which fails
+Adapt.adapt_structure(to, b::MeshBody) =
+    MeshBody(adapt(to,b.mesh), adapt(to,b.velocity), adapt(to,b.bvh), b.map, b.scale, b.boundary, b.half_thk)
 Adapt.@adapt_structure SetBody
 
 """
