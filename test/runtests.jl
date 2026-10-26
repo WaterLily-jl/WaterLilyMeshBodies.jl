@@ -354,7 +354,7 @@ end
 @testset "Force test" begin
     L = 64
     for f ∈ arrays
-        # make sure the geometry is actually place in the center of the domain (map doesn't work with SurfaceForces)
+        # make sure the geometry is actually placed in the center of the domain (map doesn't work with SurfaceForces)
         place(body) = update!(body, f([t .+ SA{T}[L,L,L] for t in Array(body.mesh)]), 0)
         force(body,δ) = (sim = Simulation((2L,2L,2L),(1,0,0),L;body,mem=f);
                          apply!(x->x[1], sim.flow.p);
