@@ -80,6 +80,19 @@ where the `motion_data` 2D Array with dimensions `[N_snapshots × N_elements]`, 
 | `mem` | `Array` | Memory backend: `Array`, `CUDA.CuArray`, etc. |
 | `primitive` | `BBox` | Bounding volume type for the BVH: `BBox` (default) or `BSphere` |
 
+#### Surface output
+
+`surface_attrib(sim)` gives the `vtkWriter` attributes to `save!` the pressure, traction, wall shear, slip velocity and normal on a `MeshBody`: the simulation's own, the no-slip `walls` (two triangles per wall cell), or any other body meshed by marching cubes (`using Meshing`):
+
+```julia
+using Meshing
+body = MeshBody(sim.body, size(sim.flow.p).-2; t=WaterLily.time(sim.flow), mem=CUDA.CuArray)
+walls = MeshBody(Walls(sim.flow); mem=CUDA.CuArray)
+wb, ww = vtkWriter("body"; attrib=surface_attrib(sim)), vtkWriter("walls"; attrib=surface_attrib(sim))
+save!(wb, body, sim_time(sim)); save!(ww, walls, sim_time(sim)); close(wb); close(ww)
+```
+A mesh on the walls is sampled on the surface, where no-slip is exact, and any other outside the BDIM kernel as in `SurfaceForces`, constant per triangle. The meshes must use the simulation's `mem`. On a static body, `WaterLily.copy!(sim.flow, meanflow)` before saving gives the time averages of a `MeanFlow` (it overwrites `sim.flow`). Vertices are in mesh coordinates, so a `MeshBody` with a non-identity `map` is sampled in the wrong place: mesh it by marching cubes instead.
+
 ### Method
 
 Closest-triangle queries are accelerated by a Bounding Volume Hierarchy (BVH) built with [ImplicitBVH.jl](https://github.com/JuliaArrays/ImplicitBVH.jl), reducing each query from $O(N)$ to $O(\log N)$ where $N$ is the number of triangles. The surface velocity at the closest point is interpolated from the triangle's vertex velocities using barycentric shape functions.

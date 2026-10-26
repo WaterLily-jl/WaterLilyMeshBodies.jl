@@ -72,7 +72,8 @@ include("update.jl")
 include("io.jl")
 include("interpolation.jl")
 include("forces.jl")
+include("surface.jl")
 
-export MeshBody, NarrowBand, save!, update!
+export MeshBody, NarrowBand, save!, update!, surface_attrib
 
 end # module

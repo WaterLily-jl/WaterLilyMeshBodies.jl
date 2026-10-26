@@ -1,5 +1,6 @@
 using WaterLilyMeshBodies
 using Test, GPUArrays, StaticArrays, WaterLily, LinearAlgebra, GeometryBasics
+import Meshing # MeshBody(body::AbstractBody, N)
 import ImplicitBVH
 import ImplicitBVH: BBox, BSphere
 
@@ -423,5 +424,38 @@ end
         apply!((i,x)-> i==1 ? γ*(x[3]-z₀) : 0f0, scaled.flow.u)
         @test WaterLily.viscous_force(SurfaceForces(scaled.body), scaled; δ=1f0) ≈
               [-factor*ν*γ*A,0,0] rtol=1e-3 atol=1e-8
+    end
+end
+
+@testset "Surface output" begin
+    vertices, sample = WaterLilyMeshBodies.vertices, WaterLilyMeshBodies.surface_sample
+    area(x) = (X = Array(x); [norm(cross(X[3k-1,:]-X[3k-2,:],X[3k,:]-X[3k-2,:]))/2 for k in 1:size(X,1)÷3])
+    ∫(x,τ) = (A = area(x); τ = Array(τ); sum(A[k]*vec(sum(τ[3k-2:3k,:],dims=1))/3 for k in eachindex(A)))
+    for f ∈ arrays
+        N = (32,16,16); c = SA[12f0,8f0,8f0]; R = 4f0; sphere = AutoBody((x,t)->√sum(abs2,x.-c)-R)
+        sim = Simulation(N,(1f0,0f0,0f0),R;ν=1f-2,body=sphere,walls=(-2,2,-3),mem=f); sim_step!(sim,1)
+        # walls: sampled on the surface, the cell-corner vertices integrate to the wall forces
+        walls = MeshBody(Walls(sim.flow);mem=f); x,n = vertices(walls); v = sample(sim,walls)
+        @test size(x,1) == 3*2*3*32*16 && all(sum((SA[16,8,8]' .- Array(x)).*Array(n),dims=2) .> 0)
+        @test ∫(x,v.τ) ≈ WaterLily.total_force(sim.flow,Walls(sim.flow)) rtol=1e-3
+        @test maximum(abs,sum(Array(v.ws.*n),dims=2)) < 1e-5 && isapprox(∫(x,v.ws)[1],-WaterLily.viscous_force(sim.flow,Walls(sim.flow))[1],rtol=1e-3)
+        # smoothed body: closed marching-cubes mesh with outward normals and the body velocity
+        body = MeshBody(sphere,N;mem=f); x,n = vertices(body)
+        @test all(sum((Array(x).-c').*Array(n),dims=2) .> 0) && isapprox(sum(area(x)),4π*R^2,rtol=0.03)
+        @test all(v->v≈SA[1 1 1;0 0 0;0 0 0], Array(MeshBody(MeshBody(sphere,N;map=(x,t)->x.-SA[t,0,0],mem=f),N;mem=f).velocity))
+        # sampled off the surface as `SurfaceForces`, so the attributes integrate to its forces
+        sim = Simulation(N,(1f0,0f0,0f0),R;ν=1f-2,body,mem=f); m = MeanFlow(sim.flow); sim_step!(sim)
+        v = sample(sim,body); sf = SurfaceForces(sim.body)
+        @test ∫(x,v.p.*n) ≈ WaterLily.pressure_force(sf,sim) rtol=1e-4
+        @test ∫(x,-v.ws) ≈ WaterLily.viscous_force(sf,sim) rtol=1e-4
+        @test size(v.slip) == size(x) && all(isfinite,Array(v.slip))
+        # time averages: the samples are linear in the flow, so sampling the `MeanFlow` gives their mean
+        t = [WaterLily.time(sim.flow)]; v₁ = sample(sim,body); update!(m,sim.flow); sim_step!(sim)
+        push!(t,WaterLily.time(sim.flow)); v₂ = sample(sim,body); update!(m,sim.flow)
+        w = (t[1]-m.t[1],t[2]-t[1])./(t[2]-m.t[1]); WaterLily.copy!(sim.flow,m); v = sample(sim,body)
+        @test Array(v.p) ≈ Array(w[1]*v₁.p+w[2]*v₂.p) && Array(v.ws) ≈ Array(w[1]*v₁.ws+w[2]*v₂.ws)
+        ws = vtkWriter("surface";attrib=surface_attrib(sim),dir="TEST_DIR"); save!(ws,body,sim_time(sim)); close(ws)
+        @test isfile("TEST_DIR/surface_000000.vtu")
+        rm("TEST_DIR",recursive=true); rm("surface.pvd")
     end
 end
