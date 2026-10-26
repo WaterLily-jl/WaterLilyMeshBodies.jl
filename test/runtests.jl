@@ -105,6 +105,13 @@ end
     bvh = ImplicitBVH.BVH(BBox{T}.(mesh), BBox{T})
     body = MeshBody(mesh, zero(mesh), bvh; boundary=true)
     @test sdf(body,SA{T}[1,0.1,1],0f0)<0
+    # a bent plate's edge from a coupled run: the back face is a round-off closer to x than the
+    # side face, and the near-tie must still go to the side face, which x is outside of
+    side = SMatrix{3,3,T}(50.43428, 31.999, 7.988006, 52.42951, 31.972845, 7.797026, 52.873188, 31.982538, 11.732127)
+    back = SMatrix{3,3,T}(52.42951, 31.972845-1f-5, 7.797026, 52.89689, 35.989773-1f-5, 11.7311735, 52.873188, 31.982538-1f-5, 11.732127)
+    mesh = [side,back]
+    body = MeshBody(mesh, zero(mesh), ImplicitBVH.BVH(BBox{T}.(mesh), BBox{T}); boundary=true)
+    @test sdf(body,SA{T}[52.5,31.5,8.5],0f0)>0
 end
 
 @testset "measure & sdf" begin
