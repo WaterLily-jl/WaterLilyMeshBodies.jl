@@ -39,11 +39,13 @@ end
                 tri = @inbounds mesh[j]
                 p = locate(x,tri)
                 d² = sum(abs2,x-p)
-                if d² < best.d²
-                    best = ClosestPoint(Int32(j), d², T.(normal(tri)), p)
-                elseif d² ≈ best.d²
+                # a near-tie (eg. both faces of an edge) goes to the triangle whose plane x is
+                # furthest from, whichever is an ulp closer or visited first: that decides the sign
+                if best.index ≠ 0 && d² ≈ best.d²
                     n = T.(normal(tri))
-                    (best.index == 0 || abs((x-p)'n) > abs((x-best.p)'best.n)) && (best = ClosestPoint(Int32(j), d², n, p))
+                    abs((x-p)'n) > abs((x-best.p)'best.n) && (best = ClosestPoint(Int32(j), d², n, p))
+                elseif d² < best.d²
+                    best = ClosestPoint(Int32(j), d², T.(normal(tri)), p)
                 end
             end
         end
