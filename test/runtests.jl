@@ -629,16 +629,25 @@ end
               [-factor*ν*γ*A,0,0] rtol=1e-3 atol=1e-8
     end
 
-    # the default samples sdf = 2 off the surface, for a closed body and a shell alike
+    # the default samples sdf = 1 off the surface, for a closed body and a shell alike
     apply!(x->x[3], sim.flow.p)
-    @test WaterLily.pressure_force(sf, sim) ≈ (L^3+2*2L^2)*[0,0,1] rtol=1e-4
+    @test WaterLily.pressure_force(sf, sim) ≈ (L^3+2L^2)*[0,0,1] rtol=1e-4
     h = 2f0 # a shell's surface is `h` off its mid-surface mesh, so p = z jumps by 2(h+δ) across it
     shell = make_sim(MeshBody(plate; boundary=false, half_thk=h)); sfh = SurfaceForces(shell.body)
     apply!(x->x[3], shell.flow.p)
-    @test WaterLily.pressure_force(sfh, shell) ≈ [0,0,2(h+2)*A] rtol=1e-4
-    @test WaterLily.pressure_force(sfh, shell; δ=1f0) ≈ [0,0,2(h+1)*A] rtol=1e-4
+    @test WaterLily.pressure_force(sfh, shell) ≈ [0,0,2(h+1)*A] rtol=1e-4
+    @test WaterLily.pressure_force(sfh, shell; δ=2f0) ≈ [0,0,2(h+2)*A] rtol=1e-4
     # zero flow inside the shell and a linear shear outside it on each side: the stencil must
     # read the flow outside, where each side carries νγA (a stencil reading inside gives 0)
     apply!((i,x)-> i==1 ? γ*max(abs(x[3]-z₀)-h,0f0) : 0f0, shell.flow.u)
     @test WaterLily.viscous_force(sfh, shell) ≈ [-2ν*γ*A,0,0] rtol=1e-3
+
+    # the default stencil never reads the cells blocked on every face (sdf < -1), whose pressure
+    # is unconstrained and drifts: poisoning them leaves the load unchanged. The poison is on the
+    # upper half only, a uniform one would cancel in the two-sided difference
+    σ = similar(shell.flow.p); measure_sdf!(σ, shell.body, 0f0; fastd²=16)
+    poison = similar(shell.flow.p); apply!(x->x[3] > z₀ ? 1f6 : 0f0, poison)
+    apply!(x->x[3], shell.flow.p)
+    shell.flow.p .= ifelse.(σ .< -1, poison, shell.flow.p)
+    @test WaterLily.pressure_force(sfh, shell) ≈ [0,0,2(h+1)*A] rtol=1e-4
 end
