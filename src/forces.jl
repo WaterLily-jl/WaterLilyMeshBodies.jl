@@ -28,22 +28,10 @@ function WaterLily.pressure_force(a::SurfaceForces,sim::AbstractSimulation;kwarg
     surface_pressure!(a,sim;kwargs...); sum(To,a.pressure,dims=1)[:] |> Array
 end
 
-# Both samplers measure `δ` from the body surface, ie. they read the flow at sdf = δ, whatever
-# the body type. The mesh is the surface of a closed body (`boundary=true`) but the mid-surface
-# of a shell, whose surface sits `half_thk` further out along each normal.
+# default surface offset is the half-thickness of the body, or zero if it is a boundary mesh
 surface_offset(body::MeshBody) = body.boundary ? zero(body.half_thk) : body.half_thk
 
-# Default sampling distance from the surface, in cells. `measure!` truncates μ₀ to zero where
-# sdf < -1, and a cell blocked on every face drops out of the Poisson operator: its pressure is
-# unconstrained and drifts (|p| ~ 5e6 measured inside a flapping shell). `interp` is trilinear
-# over the cell containing the point, so a stencil corner can sit up to |n|₁ ≤ √3 cells further
-# in than the sample: at δ=1 that is sdf ≥ 1-√3 ≈ -0.73, short of the drifting cells. Those
-# corners read the band -1<sdf<0, which is still in the operator and carries a pressure of the
-# fluid's magnitude, so it is harmless; a driver that wipes the interior pressure must leave
-# that band alone and wipe sdf < -1 only. Sampling further out costs accuracy: the offset
-# biases the load (a linear p gives ∮(a⋅x + δ a⋅n) n dA = (V + 2δL²)a), and on the sphere
-# benchmark δ=2 read the extrapolated pressure drag 3% low, and the friction 12-50% below δ=1
-# at D=32-64, while δ=1 matched Le Clair et al. (1970).
+# Default sampling distance from the surface, in cells.
 sample_offset(body::MeshBody) = one(body.half_thk)
 export sample_offset
 
