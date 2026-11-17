@@ -1,12 +1,12 @@
 """
-    SurfaceForces
+    SurfaceForces{T,A}
 
 Hold the pressure (`pressure`) and viscous (`viscous`) surface forces on the `MeshBody`.
 
 Unlike `measure`, which maps the query point into the mesh frame, the forces interpolate the
 flow at the mesh coordinates themselves and cannot apply `body.map`. The mesh must therefore
 be placed inside the flow domain, either where it is generated or by translating it with
-`update!(body,new_mesh)`; a body positioned by a non-identity `map` samples the wrong place
+`update!(body,new_mesh)`; a body positioned by a non-identity `map` (`(x,t)->x`) samples the wrong place
 and gives a wrong force.
 """
 struct SurfaceForces{T,A}
@@ -73,15 +73,7 @@ end
 end
 
 @fastmath @inline proj(a,n) = a .- sum(a.*n)*n # tangent component
-# Velocity gradient at the wall from a 2nd-order one-sided difference anchored `δ` off the
-# body surface, sampling at sdf = `δ`, `1.5δ` and `2δ` (`h` further out from a shell's
-# mid-surface). The BDIM field within |d|≲1 of the surface is masked and carries a spurious
-# slip, so a stencil anchored on the surface itself -- whether it uses the body velocity or the
-# field's own value there -- reads a wall gradient that converges to the wrong constant. These
-# three samples all lie outside the kernel support, and span only `δ` so that they stay inside
-# the near-wall region of a boundary layer a few cells thick. The body velocity is not needed:
-# a uniform surface velocity cancels out of the difference, and the body's motion reaches these
-# points through the flow field itself.
+# Velocity gradient at the wall from a 2nd-order one-sided difference anchored one `δ` off the surface
 @fastmath @inline shear(v₁,v₂,v₃,δ) = (-3v₁ + 4v₂ - v₃)/δ # spacing δ/2, derivative at `δ`
 @fastmath @inline area(ds) = √(ds'*ds)
 @inline function get_v(tri::SMatrix{3,3,T},vel,u::AbstractArray{T,4},ν,h,δ,::Val{true})  where T
