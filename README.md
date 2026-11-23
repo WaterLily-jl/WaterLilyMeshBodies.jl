@@ -80,6 +80,20 @@ where the `motion_data` 2D Array with dimensions `[N_snapshots × N_elements]`, 
 | `mem` | `Array` | Memory backend: `Array`, `CUDA.CuArray`, etc. |
 | `primitive` | `BBox` | Bounding volume type for the BVH: `BBox` (default) or `BSphere` |
 
+#### Surface forces
+
+To compute the surface forces acting on a `MeshBody`, you can create a `SurfaceForces` object by passing the body to its constructor. This object will then track and accumulate the forces on the surface elements during the simulation.
+```julia
+sim = Simulation(...)
+# construct the surface forces object
+sf = SurfaceForces(sim.body)
+```
+which stores the pressure and viscous forces on each triangular element. There are automatically updated when computing
+```julia
+sf_p = WaterLily.pressure_force(sf, sim)
+```
+which populates the `sf.pressure` arrays with the corresponding forces on each triangular element and return the total pressure force. If only the the per-element forces are needed, they can be computed directly from `WaterLilyMeshBodies.surface_pressure!(sf, sim)`. Similar functions exist for the viscous forces.
+
 ### Method
 
 Closest-triangle queries are accelerated by a Bounding Volume Hierarchy (BVH) built with [ImplicitBVH.jl](https://github.com/JuliaArrays/ImplicitBVH.jl), reducing each query from $O(N)$ to $O(\log N)$ where $N$ is the number of triangles. The surface velocity at the closest point is interpolated from the triangle's vertex velocities using barycentric shape functions.
@@ -88,4 +102,3 @@ The default `boundary=false` results in a open/shell body with finite half-thick
 
 > [!WARNING]
 > If a mesh is not "water-tight" or has faces with inward facing normals, the `boundary=true` signed distance measurement will fail.
-
