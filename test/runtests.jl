@@ -18,6 +18,8 @@ catch
     @info "Running tests on CPU only"
 end
 
+import Ferrite # not `using`: its exports (eg. `update!`) clash with WaterLily's
+
 T = Float32
 mem = Array
 tri1 = SA{T}[0 1 0; 0 0 1; 0 0 0]
@@ -307,6 +309,208 @@ end
         @test maximum(sim.pois.n) < 10
         @test 1 > sim.flow.Δt[end] > 0
     end
+end
+
+@testset "Ferrite shell mesh conversion" begin
+    corners = [Ferrite.Vec{2}((0.0,0.0)), Ferrite.Vec{2}((1.0,0.0)), Ferrite.Vec{2}((1.0,1.0)), Ferrite.Vec{2}((0.0,1.0))]
+    dims = (2,2)
+    # embed a 2D grid in 3D, as `FerriteShells.shell_grid` does
+    embed3d(grid) = Ferrite.Grid(grid.cells, [Ferrite.Node(Ferrite.Vec{3}((n.x[1],n.x[2],0.0))) for n in grid.nodes])
+
+    # simple flat plate for each Ferrite cell type generate_grid supports directly,
+    # each paired with the number of sub-faces/triangles a single cell decomposes into
+    for (celltype, subfaces_per_cell, tris_per_face) in (
+        (Ferrite.Quadrilateral,          1, 2), # Q4
+        (Ferrite.QuadraticQuadrilateral, 4, 2), # Q9
+        (Ferrite.Triangle,               1, 1), # S3
+        (Ferrite.QuadraticTriangle,      4, 1), # S6
+    )
+        for mem in arrays
+            grid = embed3d(Ferrite.generate_grid(celltype, dims, corners))
+            body = MeshBody(grid; half_thk=0.1f0, mem)
+            @test length(body.mesh) == length(grid.cells) * subfaces_per_cell * tris_per_face
+        end
+    end
+
+    # Q8 (serendipity): no generate_grid method, build a single-cell plate by hand
+    node(x,y) = Ferrite.Node(Ferrite.Vec{3}((x,y,0.0)))
+    nodes = [node(0,0), node(1,0), node(1,1), node(0,1),
+             node(0.5,0), node(1,0.5), node(0.5,1), node(0,0.5)]
+    cells = [Ferrite.SerendipityQuadraticQuadrilateral((1,2,3,4,5,6,7,8))]
+    for mem in arrays
+        grid = Ferrite.Grid(cells, nodes)
+        body = MeshBody(grid; half_thk=0.1f0, mem)
+        @test length(body.mesh) == 2 # 1 flat quad (no center node) -> 2 triangles
+    end
+
+    # the type of `scale` sets the body's eltype
+    grid = embed3d(Ferrite.generate_grid(Ferrite.Quadrilateral, dims, corners))
+    @test eltype(eltype(MeshBody(grid; half_thk=0.1, scale=1.0).mesh)) == Float64
+    @test eltype(eltype(MeshBody(grid; half_thk=0.1f0).mesh)) == Float32
+end
+
+@testset "Ferrite wet surface extraction" begin
+    n = 2; left = Ferrite.Vec{3}((0.,0.,0.)); right = Ferrite.Vec{3}((1.,1.,1.))
+    dS, center = WaterLilyMeshBodies.dS, WaterLilyMeshBodies.center
+
+    # a unit cube meshed with every 3D cell type `generate_grid` supports. The number of wet
+    # triangles is only fixed for the cell types with all-quad or all-tri facets
+    for (celltype, ntris) in (
+        (Ferrite.Hexahedron,                     12n^2), # 6n² quad facets -> 2 tris each
+        (Ferrite.Tetrahedron,                    12n^2), # each boundary quad -> 2 tris
+        (Ferrite.SerendipityQuadraticHexahedron, 12n^2), # Q8 facets, corners only
+        (Ferrite.Wedge,                          nothing),  # mixed tri/quad facets
+        (Ferrite.Pyramid,                        nothing),
+    )
+        grid = Ferrite.generate_grid(celltype, (n,n,n), left, right)
+        body = MeshBody(grid; boundary=true)
+        tris = Array(body.mesh)
+
+        # only the wet facets are meshed, and they close the cube
+        isnothing(ntris) || @test length(tris) == ntris
+        @test sum(dS, tris) ≈ zeros(3) atol=1e-5
+
+        # outward winding: the divergence theorem gives the enclosed volume, +1 not -1
+        @test sum(t->center(t)'dS(t), tris)/3 ≈ 1 atol=1e-5
+    end
+
+    # two hexes side by side: 12 facets, the shared one is dry
+    grid = Ferrite.generate_grid(Ferrite.Hexahedron, (2,1,1), left, right)
+    @test length(WaterLilyMeshBodies.wetfacets(grid)) == 10
+
+    # `wetfaces` must reproduce exactly the triangles `MeshBody` built, in the same order,
+    # for both the shell and the volume path
+    corners = [Ferrite.Vec{2}((0.,0.)), Ferrite.Vec{2}((1.,0.)), Ferrite.Vec{2}((1.,1.)), Ferrite.Vec{2}((0.,1.))]
+    plate = Ferrite.generate_grid(Ferrite.QuadraticQuadrilateral, (n,n), corners)
+    shell = Ferrite.Grid(plate.cells, [Ferrite.Node(Ferrite.Vec{3}((nd.x[1],nd.x[2],0.))) for nd in plate.nodes])
+    for grid in (Ferrite.generate_grid(Ferrite.Tetrahedron, (n,n,n), left, right),
+                 Ferrite.generate_grid(Ferrite.Hexahedron, (n,n,n), left, right), shell)
+        mk_body(scale=1f0) = MeshBody(grid; half_thk=0.1f0, scale)
+        body, faces = mk_body(), WaterLilyMeshBodies.wetfaces(grid)
+        X = Float32[Ferrite.get_node_coordinate(grid,i)[d] for d in 1:3, i in 1:Ferrite.getnnodes(grid)]
+        @test length(faces) == length(body.mesh)
+        @test all(WaterLilyMeshBodies.gather(f,X) ≈ t for (f,t) in zip(faces,body.mesh))
+
+        # a rigid translation of the nodes translates every triangle, and sets the velocity
+        δ = Float32[0.3,-0.2,0.7]; dt = 2f0
+        moved = update!(mk_body(), faces, X.+δ, dt)
+        @test all(m ≈ t.+δ for (m,t) in zip(moved.mesh,body.mesh))
+        @test all(v ≈ hcat(δ,δ,δ)/dt for v in moved.velocity)
+
+        # prescribed nodal velocities gather through the same connectivity as the positions,
+        # so feeding the reference coordinates as the velocity reproduces the reference mesh
+        pv = update!(mk_body(), faces, X.+δ, X)
+        @test all(m ≈ t.+δ for (m,t) in zip(pv.mesh,body.mesh))
+        @test all(w ≈ t for (w,t) in zip(pv.velocity,body.mesh))
+
+        # ...and unlike the `dt` form the velocity is whatever was handed in, independent of
+        # how far the body moved or of any time step
+        V = Float32[0.1,-0.4,0.2] .* ones(Float32,1,size(X,2))
+        @test all(w ≈ hcat(V[:,1],V[:,1],V[:,1]) for w in update!(mk_body(),faces,X.+δ,V).velocity)
+        @test all(w ≈ hcat(V[:,1],V[:,1],V[:,1]) for w in update!(mk_body(),faces,X,V).velocity)
+
+        # `scale` is baked into the mesh by the constructor and `update!` takes body-frame
+        # coordinates, as it does for a new mesh, so the nodes must be scaled by the caller
+        scaled = mk_body(2f0)
+        @test all(m ≈ 2t for (m,t) in zip(scaled.mesh,body.mesh))
+        @test all(m ≈ t for (m,t) in zip(update!(mk_body(2f0),faces,2f0*X).mesh,scaled.mesh))
+    end
+
+    # `facetnodes` keeps the higher-order nodes the linear `facets` would drop
+    grid = Ferrite.generate_grid(Ferrite.SerendipityQuadraticHexahedron, (1,1,1), left, right)
+    facet = first(WaterLilyMeshBodies.wetfacets(grid))
+    @test length(WaterLilyMeshBodies.facetnodes(grid, facet)) == 8
+    @test length(Ferrite.facets(Ferrite.getcells(grid, facet[1]))[facet[2]]) == 4
+end
+
+@testset "Ferrite consistent surface loads" begin
+    W, loads = WaterLilyMeshBodies.facet_weights, WaterLilyMeshBodies.facet_loads
+    dS = WaterLilyMeshBodies.dS
+    left, right = Ferrite.Vec{3}((0.,0.,0.)), Ferrite.Vec{3}((1.,1.,1.))
+
+    # the resultant force is preserved whatever the shape functions do
+    for N in (3,4,6,8,9)
+        @test all(sum(W(N),dims=1) .≈ 1)
+    end
+
+    # a uniform traction must give back ∫Nₐ dΓ, ie. the consistent load of each facet type
+    uniform(N) = W(N)*[1/size(W(N),2) for _ in axes(W(N),2)] # equal-area sub-triangles
+    @test uniform(3) ≈ fill(1/3,3)                           # P1: the F/3 scatter is exact
+    @test uniform(4) ≈ fill(1/4,4)                           # Q4: not (1/3,1/6,1/3,1/6)
+    @test uniform(6) ≈ [0,0,0,1/3,1/3,1/3]        atol=1e-12 # T6: corners carry nothing
+    @test uniform(8) ≈ [fill(-1/12,4); fill(1/3,4)]          # Q8: corners go negative
+    @test uniform(9) ≈ [fill(1/36,4); fill(1/9,4); 4/9]
+
+    # the Q4 matrix in full: the split-diagonal nodes take 1/4 from both triangles, not 1/3
+    @test W(4) ≈ [1/4 1/4; 5/12 1/12; 1/4 1/4; 1/12 5/12]
+
+    # a unit cube under unit traction. Every node of a single Hexahedron touches 3 facets of
+    # area 1, so it must carry 3*(1/4); the naive scatter would give a diagonal-biased spread
+    # the nodes are compared as a sorted multiset, the grid numbering interleaves corners
+    # and mid-edge nodes rather than listing the corners first
+    for (celltype,expect) in ((Ferrite.Hexahedron, fill(3/4,8)),
+                              # Q8: corners touch 3 facets at -1/12, mid-edges 2 facets at 1/3
+                              (Ferrite.SerendipityQuadraticHexahedron, [fill(-1/4,8); fill(2/3,12)]))
+        grid = Ferrite.generate_grid(celltype, (1,1,1), left, right)
+        body = MeshBody(grid; boundary=true)
+        # a uniform unit traction in every direction, so the force on a triangle is its area
+        F = reduce(vcat, [fill(√sum(abs2,dS(t)),1,3) for t in body.mesh])
+        f = loads(grid, F)
+        @test all(sort(f[d,:]) ≈ expect for d in 1:3)
+        @test sum(f,dims=2)[:] ≈ fill(6.0,3)           # total = surface area of the cube
+    end
+
+    # on a tet grid (P1 facets) the consistent load *is* the F/3 scatter, so the two agree
+    grid = Ferrite.generate_grid(Ferrite.Tetrahedron, (2,2,2), left, right)
+    faces, body = WaterLilyMeshBodies.wetfaces(grid), MeshBody(grid; boundary=true)
+    F = reduce(vcat, [dS(t)' for t in body.mesh])
+    naive = zeros(3, Ferrite.getnnodes(grid))
+    for (i,face) in enumerate(faces), n in face
+        @views naive[:,n] .+= F[i,:]./3
+    end
+    @test loads(grid, F) ≈ naive
+
+    # hoisting the entities out of the time loop changes nothing
+    entities = WaterLilyMeshBodies.wetentities(grid)
+    @test loads(grid, F, entities) ≈ naive
+    @test_throws AssertionError loads(grid, F[1:end-1,:], entities)
+end
+
+@testset "Ferrite nodal dofs" begin
+    ids_of = WaterLilyMeshBodies.nodal_dofs
+    corners = [Ferrite.Vec{2}((0.,0.)), Ferrite.Vec{2}((1.,0.)), Ferrite.Vec{2}((1.,1.)), Ferrite.Vec{2}((0.,1.))]
+    shell(C) = (g = Ferrite.generate_grid(C,(3,2),corners);
+                Ferrite.Grid(g.cells,[Ferrite.Node(Ferrite.Vec{3}((n.x[1],n.x[2],0.))) for n in g.nodes]))
+    function dofhandler(grid, ip; θ=true)
+        dh = Ferrite.DofHandler(grid); Ferrite.add!(dh,:u,ip^3)
+        θ && Ferrite.add!(dh,:θ,ip^2) # the shell layout, :u is no longer the first block
+        Ferrite.close!(dh); dh
+    end
+
+    # every node is mapped, once per component, onto exactly the :u dofs, and gathering
+    # through the map agrees with Ferrite's own nodal evaluation
+    for (grid,ip,θ) in ((shell(Ferrite.Quadrilateral),          Ferrite.Lagrange{Ferrite.RefQuadrilateral,1}(), true),
+                        (shell(Ferrite.QuadraticQuadrilateral), Ferrite.Lagrange{Ferrite.RefQuadrilateral,2}(), true),
+                        (shell(Ferrite.Triangle),               Ferrite.Lagrange{Ferrite.RefTriangle,1}(),      true),
+                        (Ferrite.generate_grid(Ferrite.Hexahedron,(2,2,2)), Ferrite.Lagrange{Ferrite.RefHexahedron,1}(), false))
+        dh = dofhandler(grid, ip; θ)
+        ids = ids_of(dh)
+        @test size(ids) == (3, Ferrite.getnnodes(grid))
+        @test allunique(ids) && length(ids) == 3Ferrite.getnnodes(grid)
+        θ && @test isdisjoint(ids, ids_of(dh,:θ))
+        d = rand(Ferrite.ndofs(dh))
+        @test d[ids] ≈ reduce(hcat, Vector.(Ferrite.evaluate_at_grid_nodes(dh,d,:u)))
+
+        # scattering a nodal array and gathering it back is the identity
+        x = rand(size(ids)...); f = zeros(Ferrite.ndofs(dh)); f[ids] .= x
+        @test f[ids] == x
+    end
+
+    # a field below the grid order has no dof on some nodes, so it is refused
+    @test_throws AssertionError ids_of(dofhandler(shell(Ferrite.QuadraticQuadrilateral),
+                                                  Ferrite.Lagrange{Ferrite.RefQuadrilateral,1}()))
+    @test_throws ArgumentError ids_of(dofhandler(shell(Ferrite.Quadrilateral),
+                                                 Ferrite.Lagrange{Ferrite.RefQuadrilateral,1}()), :w)
 end
 
 @testset "MotionInterpolation" begin

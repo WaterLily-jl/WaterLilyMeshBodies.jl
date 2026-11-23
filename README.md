@@ -38,7 +38,7 @@ sim = Simulation((4L,2L,2L), (1,0,0), L; body, ν=1e-3, T, mem=CUDA.CuArray)
 sim_step!(sim, 1.0, remeasure=false) # simulate flow around the static mesh
 ```
 
-The `MeshBody` can also be initialized using any `GeometryBasics.Mesh` directly. Internally, any mesh is converted to a triangle mesh, so non-triangular faces will be triangulated.
+The `MeshBody` can also be initialized using any `GeometryBasics.Mesh` or [`Ferrite.Grid`](https://github.com/Ferrite-FEM/Ferrite.jl) directly. Any element type supported by these libraries can be used. Internally, any mesh is converted to a triangle mesh, so non-triangular faces will be triangulated.
 
 #### Deforming mesh body
 
