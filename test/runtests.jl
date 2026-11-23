@@ -565,7 +565,7 @@ end
 @testset "Force test" begin
     L = 64
     for f ∈ arrays
-        # make sure the geometry is actually place in the center of the domain (map doesn't work with SurfaceForces)
+        # make sure the geometry is actually placed in the center of the domain (map doesn't work with SurfaceForces)
         place(body) = update!(body, f([t .+ SA{T}[L,L,L] for t in Array(body.mesh)]), 0)
         force(body,δ) = (sim = Simulation((2L,2L,2L),(1,0,0),L;body,mem=f);
                          apply!(x->x[1], sim.flow.p);
@@ -590,13 +590,13 @@ end
 
 @testset "Surface forces" begin
     L, N, δs = 20.0, 64, (1f0, 0.5f0)
-    # a flat-faced closed body of exact volume L³ and face area L², placed in the domain
-    cube(lo=22.0) = Ferrite.generate_grid(Ferrite.Hexahedron, (4,4,4),
-                        lo*ones(Ferrite.Vec{3}), (lo+L)*ones(Ferrite.Vec{3}))
     ν = 0.1f0 # must be non-zero, the viscous force is ν∫∂u/∂n dA
+    # `box.stl` scaled by L/2 has volume L³ with faces of area L²
+    cube(shift=32f0) = (b = MeshBody(joinpath(@__DIR__,"meshes/box.stl"); scale=T(L/2), boundary=true);
+                        update!(b, [t .+ SA{T}[shift,shift,shift] for t in b.mesh], 0))
     make_sim(body) = Simulation((N,N,N),(0,0,0),16; body, ν, T=Float32)
 
-    sim = make_sim(MeshBody(cube(); boundary=true)); sf = SurfaceForces(sim.body)
+    sim = make_sim(cube()); sf = SurfaceForces(sim.body)
 
     # uniform pressure, no resultant on a closed body, ∮n dA = 0
     apply!(x->3f0, sim.flow.p)
