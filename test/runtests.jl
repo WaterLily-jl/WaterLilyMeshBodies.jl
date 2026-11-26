@@ -9,7 +9,7 @@ import ImplicitBVH: BBox, BSphere
 # Conditionally use CUDA if available
 arrays = [Array]  # Default to CPU-only
 try
-    using CUDA
+    using CUDA: CUDA, CuArray
     if CUDA.functional() && WaterLily.backend != "SIMD"
         push!(arrays, CuArray)
         @info "Running tests on CPU and GPU"
